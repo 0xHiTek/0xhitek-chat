@@ -279,7 +279,7 @@ body::before {
     height: 100vh;
 }
 
-/* User Menu */
+/* User Menu - Fixed Version */
 .user-menu {
     display: flex;
     align-items: center;
@@ -323,10 +323,21 @@ body::before {
     min-width: 200px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     z-index: 1000;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.3s, transform 0.3s;
 }
 
-.user-menu:hover .user-dropdown {
+/* Remove the hover-based display */
+/* .user-menu:hover .user-dropdown {
     display: block;
+} */
+
+/* Add active state for dropdown */
+.user-dropdown.active {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .user-dropdown a {
@@ -350,6 +361,21 @@ body::before {
 
 .user-dropdown a:last-child {
     border-radius: 0 0 8px 8px;
+}
+
+/* Add a small arrow indicator */
+.user-menu::after {
+    content: '\f0d7';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+    transition: transform 0.3s;
+}
+
+.user-menu.active::after {
+    transform: rotate(180deg);
 }
 
 /* Profile Modal Styles */
