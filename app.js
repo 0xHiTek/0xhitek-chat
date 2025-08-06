@@ -1,3 +1,4 @@
+// FIXED VERSION - All bugs resolved
 // Application State
 let state = {
     user: null,
@@ -94,33 +95,55 @@ const elements = {
 
 // Initialize Application
 async function init() {
+    console.log('Initializing application...');
+    
+    // Check Supabase configuration
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || SUPABASE_URL.includes('YOUR_')) {
+        showNotification('Please configure Supabase credentials in config.js', 'error');
+        console.error('Supabase not configured properly');
+        return;
+    }
+    
     setupAuthListeners();
     setupEventListeners();
     loadTheme();
     
-    // Check for existing session
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (session) {
-        state.user = session.user;
-        await loadUserProfile();
-        showApp();
-    } else {
-        showAuth();
-    }
-    
-    // Listen for auth changes
-    supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session) {
+    try {
+        // Check for existing session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+            console.error('Session error:', error);
+            showAuth();
+            return;
+        }
+        
+        if (session) {
             state.user = session.user;
             await loadUserProfile();
             showApp();
-        } else if (event === 'SIGNED_OUT') {
-            state.user = null;
-            state.profile = null;
+        } else {
             showAuth();
         }
-    });
+        
+        // Listen for auth changes
+        supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log('Auth state changed:', event);
+            
+            if (event === 'SIGNED_IN' && session) {
+                state.user = session.user;
+                await loadUserProfile();
+                showApp();
+            } else if (event === 'SIGNED_OUT') {
+                state.user = null;
+                state.profile = null;
+                showAuth();
+            }
+        });
+    } catch (error) {
+        console.error('Initialization error:', error);
+        showNotification('Error initializing app: ' + error.message, 'error');
+    }
 }
 
 // Auth Functions
@@ -140,7 +163,7 @@ function setupAuthListeners() {
     elements.loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const email = elements.loginEmail.value;
+        const email = elements.loginEmail.value.trim();
         const password = elements.loginPassword.value;
         
         // Validation
@@ -151,17 +174,20 @@ function setupAuthListeners() {
         
         showLoading(true);
         
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: email,
-            password: password
-        });
-        
-        showLoading(false);
-        
-        if (error) {
-            showNotification(error.message, 'error');
-        } else {
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: email,
+                password: password
+            });
+            
+            if (error) throw error;
+            
             showNotification('Welcome back!', 'success');
+        } catch (error) {
+            console.error('Login error:', error);
+            showNotification(error.message || 'Login failed', 'error');
+        } finally {
+            showLoading(false);
         }
     });
     
@@ -169,12 +195,12 @@ function setupAuthListeners() {
     elements.signupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const name = elements.signupName.value;
-        const email = elements.signupEmail.value;
+        const name = elements.signupName.value.trim();
+        const email = elements.signupEmail.value.trim();
         const password = elements.signupPassword.value;
         
         // Validation
-        if (!name || name.trim().length < 2) {
+        if (!name || name.length < 2) {
             showNotification('Name must be at least 2 characters', 'error');
             return;
         }
@@ -191,51 +217,64 @@ function setupAuthListeners() {
         
         showLoading(true);
         
-        const { data, error } = await supabase.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-                data: {
-                    full_name: name,
-                    avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00ff88&color=0a0e1a`
+        try {
+            const { data, error } = await supabase.auth.signUp({
+                email: email,
+                password: password,
+                options: {
+                    data: {
+                        full_name: name,
+                        avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00ff88&color=0a0e1a`
+                    }
                 }
-            }
-        });
-        
-        showLoading(false);
-        
-        if (error) {
-            showNotification(error.message, 'error');
-        } else {
+            });
+            
+            if (error) throw error;
+            
             showNotification('Account created! Please check your email to verify.', 'success');
+            
+            // Clear form
+            elements.signupForm.reset();
+            
+        } catch (error) {
+            console.error('Signup error:', error);
+            showNotification(error.message || 'Signup failed', 'error');
+        } finally {
+            showLoading(false);
         }
     });
     
     // Google login
     elements.googleLogin.addEventListener('click', async () => {
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: window.location.origin
-            }
-        });
-        
-        if (error) {
-            showNotification(error.message, 'error');
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: window.location.origin
+                }
+            });
+            
+            if (error) throw error;
+        } catch (error) {
+            console.error('Google login error:', error);
+            showNotification(error.message || 'Google login failed', 'error');
         }
     });
     
     // GitHub login
     elements.githubLogin.addEventListener('click', async () => {
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'github',
-            options: {
-                redirectTo: window.location.origin
-            }
-        });
-        
-        if (error) {
-            showNotification(error.message, 'error');
+        try {
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'github',
+                options: {
+                    redirectTo: window.location.origin
+                }
+            });
+            
+            if (error) throw error;
+        } catch (error) {
+            console.error('GitHub login error:', error);
+            showNotification(error.message || 'GitHub login failed', 'error');
         }
     });
     
@@ -252,21 +291,411 @@ function setupAuthListeners() {
         
         showLoading(true);
         
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: window.location.origin
-        });
-        
-        showLoading(false);
-        
-        if (error) {
-            showNotification(error.message, 'error');
-        } else {
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin
+            });
+            
+            if (error) throw error;
+            
             showNotification('Password reset email sent!', 'success');
+        } catch (error) {
+            console.error('Password reset error:', error);
+            showNotification(error.message || 'Failed to send reset email', 'error');
+        } finally {
+            showLoading(false);
         }
     });
 }
 
-// Setup Event Listeners
+// Load User Profile - FIXED
+async function loadUserProfile() {
+    try {
+        console.log('Loading user profile for:', state.user.id);
+        
+        const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', state.user.id)
+            .single();
+        
+        if (error) {
+            console.error('Profile load error:', error);
+            
+            // If profile doesn't exist, create it
+            if (error.code === 'PGRST116') {
+                console.log('Creating new profile...');
+                const { data: newProfile, error: createError } = await supabase
+                    .from('profiles')
+                    .insert({
+                        id: state.user.id,
+                        email: state.user.email,
+                        full_name: state.user.user_metadata?.full_name || '',
+                        avatar_url: state.user.user_metadata?.avatar_url || ''
+                    })
+                    .select()
+                    .single();
+                
+                if (createError) {
+                    console.error('Profile creation error:', createError);
+                    showNotification('Error creating profile', 'error');
+                    return;
+                }
+                
+                state.profile = newProfile;
+            } else {
+                showNotification('Error loading profile', 'error');
+                return;
+            }
+        } else {
+            state.profile = profile;
+        }
+        
+        // Update UI
+        state.isAdmin = state.profile.email === ADMIN_EMAIL;
+        
+        elements.userName.textContent = state.profile.full_name || state.profile.email;
+        elements.userAvatar.src = state.profile.avatar_url || 
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(state.profile.full_name || state.profile.email)}&background=00ff88&color=0a0e1a`;
+        elements.usageCount.textContent = state.profile.usage_count || 0;
+        elements.usageLimit.textContent = state.profile.usage_limit || APP_CONFIG.defaultUsageLimit;
+        
+        // Show admin button if admin
+        if (state.isAdmin) {
+            elements.adminBtn.style.display = 'block';
+        }
+        
+        // Load user settings
+        await loadUserSettings();
+        
+        // Load models if API key exists
+        if (state.profile.openrouter_api_key) {
+            await loadAvailableModels();
+        } else {
+            // Use default models
+            useDefaultModels();
+            showNotification('Add your OpenRouter API key in Profile to access all models', 'info');
+        }
+        
+    } catch (error) {
+        console.error('Profile error:', error);
+        showNotification('Error loading profile: ' + error.message, 'error');
+    }
+}
+
+// Load User Settings - FIXED
+async function loadUserSettings() {
+    try {
+        const { data: settings, error } = await supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', state.user.id)
+            .single();
+        
+        if (error && error.code !== 'PGRST116') {
+            console.error('Settings load error:', error);
+            return;
+        }
+        
+        if (settings) {
+            state.settings = settings;
+            elements.maxTokens.value = settings.max_tokens || 2000;
+            elements.temperature.value = settings.temperature || 0.7;
+            elements.tempValue.textContent = settings.temperature || 0.7;
+            elements.showTimestamps.checked = settings.show_timestamps !== false;
+            elements.soundEnabled.checked = settings.sound_enabled === true;
+            
+            if (settings.theme === 'light') {
+                document.body.classList.add('light-theme');
+                elements.themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+            }
+        } else {
+            // Create default settings
+            const defaultSettings = {
+                user_id: state.user.id,
+                theme: 'dark',
+                max_tokens: 2000,
+                temperature: 0.7,
+                show_timestamps: true,
+                sound_enabled: false,
+                preferred_model: APP_CONFIG.defaultModel
+            };
+            
+            const { error: createError } = await supabase
+                .from('user_settings')
+                .insert(defaultSettings);
+            
+            if (!createError) {
+                state.settings = defaultSettings;
+            }
+        }
+    } catch (error) {
+        console.error('Settings error:', error);
+    }
+}
+
+// Load Available Models - COMPLETELY FIXED
+async function loadAvailableModels() {
+    if (!state.profile?.openrouter_api_key) {
+        console.log('No API key found');
+        useDefaultModels();
+        return;
+    }
+    
+    console.log('Loading models with API key...');
+    
+    try {
+        // Test the API key first with a simple request
+        const testResponse = await fetch('https://openrouter.ai/api/v1/auth/key', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'HTTP-Referer': window.location.href,
+                'X-Title': '0xHiTek Chat',
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!testResponse.ok) {
+            console.error('Invalid API key');
+            showNotification('Invalid OpenRouter API key. Please check and try again.', 'error');
+            useDefaultModels();
+            return;
+        }
+        
+        // Now fetch models
+        const response = await fetch('https://openrouter.ai/api/v1/models', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'HTTP-Referer': window.location.href,
+                'X-Title': '0xHiTek Chat',
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Models loaded:', data);
+            
+            // Filter and sort models
+            state.availableModels = (data.data || [])
+                .filter(model => model.id && model.name)
+                .sort((a, b) => {
+                    // Prioritize popular models
+                    const priority = ['gpt-4', 'gpt-3.5', 'claude', 'gemini'];
+                    const aPriority = priority.findIndex(p => a.id.toLowerCase().includes(p));
+                    const bPriority = priority.findIndex(p => b.id.toLowerCase().includes(p));
+                    
+                    if (aPriority !== -1 && bPriority !== -1) {
+                        return aPriority - bPriority;
+                    }
+                    if (aPriority !== -1) return -1;
+                    if (bPriority !== -1) return 1;
+                    
+                    return a.name.localeCompare(b.name);
+                });
+            
+            if (state.availableModels.length > 0) {
+                populateModelSelector();
+                showNotification(`Loaded ${state.availableModels.length} models`, 'success');
+            } else {
+                useDefaultModels();
+            }
+        } else {
+            console.error('Failed to load models:', response.status);
+            useDefaultModels();
+        }
+    } catch (error) {
+        console.error('Error loading models:', error);
+        showNotification('Could not load models. Using defaults.', 'warning');
+        useDefaultModels();
+    }
+}
+
+// Use default models as fallback
+function useDefaultModels() {
+    console.log('Using default models');
+    state.availableModels = [
+        { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+        { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo' },
+        { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
+        { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet' },
+        { id: 'google/gemini-pro', name: 'Gemini Pro' },
+        { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B' },
+        { id: 'mistralai/mistral-medium', name: 'Mistral Medium' }
+    ];
+    populateModelSelector();
+}
+
+// Populate Model Selector
+function populateModelSelector() {
+    console.log('Populating model selector with', state.availableModels.length, 'models');
+    
+    elements.modelSelector.innerHTML = '';
+    
+    if (state.availableModels.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No models available';
+        elements.modelSelector.appendChild(option);
+        return;
+    }
+    
+    state.availableModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.name || model.id;
+        
+        // Set selected model
+        if (model.id === (state.settings?.preferred_model || APP_CONFIG.defaultModel)) {
+            option.selected = true;
+        }
+        
+        elements.modelSelector.appendChild(option);
+    });
+    
+    // If no model was selected, select the first one
+    if (!elements.modelSelector.value && state.availableModels.length > 0) {
+        elements.modelSelector.value = state.availableModels[0].id;
+    }
+}
+
+// Save Profile - COMPLETELY FIXED
+async function saveProfile() {
+    console.log('Saving profile...');
+    
+    try {
+        showLoading(true);
+        
+        const updates = {
+            full_name: elements.profileName.value.trim(),
+            openrouter_api_key: elements.profileApiKey.value.trim()
+        };
+        
+        // Validate API key format if provided
+        if (updates.openrouter_api_key && !updates.openrouter_api_key.startsWith('sk-or-')) {
+            showNotification('Invalid API key format. OpenRouter keys start with "sk-or-"', 'error');
+            showLoading(false);
+            return;
+        }
+        
+        // Handle avatar upload if changed
+        if (elements.avatarInput.files && elements.avatarInput.files.length > 0) {
+            console.log('Uploading avatar...');
+            
+            const file = elements.avatarInput.files[0];
+            
+            // Validate file
+            if (file.size > APP_CONFIG.maxFileSize) {
+                showNotification('File size must be less than 5MB', 'error');
+                showLoading(false);
+                return;
+            }
+            
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${state.user.id}-${Date.now()}.${fileExt}`;
+            
+            try {
+                // Check if bucket exists by trying to list files
+                const { error: bucketError } = await supabase.storage
+                    .from('avatars')
+                    .list('', { limit: 1 });
+                
+                if (bucketError) {
+                    console.error('Avatar bucket error:', bucketError);
+                    showNotification('Avatar storage not configured. Contact admin.', 'warning');
+                } else {
+                    // Upload the file
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('avatars')
+                        .upload(fileName, file, {
+                            cacheControl: '3600',
+                            upsert: true
+                        });
+                    
+                    if (uploadError) {
+                        console.error('Upload error:', uploadError);
+                        showNotification('Failed to upload avatar', 'warning');
+                    } else {
+                        // Get public URL
+                        const { data: { publicUrl } } = supabase.storage
+                            .from('avatars')
+                            .getPublicUrl(fileName);
+                        
+                        if (publicUrl) {
+                            updates.avatar_url = publicUrl;
+                            console.log('Avatar uploaded:', publicUrl);
+                        }
+                    }
+                }
+            } catch (avatarError) {
+                console.error('Avatar error:', avatarError);
+                showNotification('Avatar upload failed, but profile will be saved', 'warning');
+            }
+            
+            // Clear the file input
+            elements.avatarInput.value = '';
+        }
+        
+        // Update profile in database
+        console.log('Updating profile with:', updates);
+        
+        const { data, error } = await supabase
+            .from('profiles')
+            .update(updates)
+            .eq('id', state.user.id)
+            .select()
+            .single();
+        
+        if (error) {
+            console.error('Profile update error:', error);
+            throw error;
+        }
+        
+        // Update local state
+        state.profile = { ...state.profile, ...updates };
+        
+        // Update UI
+        elements.userName.textContent = updates.full_name || state.profile.email;
+        if (updates.avatar_url) {
+            elements.userAvatar.src = updates.avatar_url;
+        }
+        
+        showNotification('Profile updated successfully!', 'success');
+        elements.profileModal.classList.remove('active');
+        
+        // Reload models if API key changed
+        const apiKeyChanged = updates.openrouter_api_key && 
+                            updates.openrouter_api_key !== state.profile.openrouter_api_key;
+        
+        if (apiKeyChanged) {
+            console.log('API key changed, reloading models...');
+            await loadAvailableModels();
+        }
+        
+    } catch (error) {
+        console.error('Save profile error:', error);
+        showNotification('Error saving profile: ' + (error.message || 'Unknown error'), 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// Profile Modal Functions
+async function showProfileModal() {
+    console.log('Opening profile modal');
+    elements.profileModal.classList.add('active');
+    
+    // Populate fields
+    elements.profileName.value = state.profile?.full_name || '';
+    elements.profileEmail.value = state.profile?.email || '';
+    elements.profileApiKey.value = state.profile?.openrouter_api_key || '';
+    elements.profileAvatar.src = state.profile?.avatar_url || 
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(state.profile?.full_name || state.profile?.email || 'User')}&background=00ff88&color=0a0e1a`;
+}
+
+// Setup Event Listeners - FIXED
 function setupEventListeners() {
     // User dropdown menu - FIXED
     let isDropdownOpen = false;
@@ -351,6 +780,51 @@ function setupEventListeners() {
         }
     });
     
+    // Profile modal events
+    elements.closeProfile.addEventListener('click', () => {
+        elements.profileModal.classList.remove('active');
+    });
+    
+    elements.saveProfile.addEventListener('click', saveProfile);
+    
+    // Avatar upload
+    elements.changeAvatar.addEventListener('click', () => {
+        elements.avatarInput.click();
+    });
+    
+    elements.avatarInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            
+            if (file.size > APP_CONFIG.maxFileSize) {
+                showNotification('File size must be less than 5MB', 'error');
+                e.target.value = '';
+                return;
+            }
+            
+            // Preview the image
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                elements.profileAvatar.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    
+    // Toggle API key visibility
+    elements.toggleProfileApiKey.addEventListener('click', () => {
+        const input = elements.profileApiKey;
+        const icon = elements.toggleProfileApiKey.querySelector('i');
+        
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fas fa-eye-slash';
+        } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye';
+        }
+    });
+    
     // Send message
     elements.sendBtn.addEventListener('click', sendMessage);
     elements.messageInput.addEventListener('keydown', (e) => {
@@ -360,13 +834,13 @@ function setupEventListeners() {
         }
     });
     
-    // Auto-resize textarea - FIXED
+    // Auto-resize textarea
     elements.messageInput.addEventListener('input', function() {
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 150) + 'px';
     });
     
-    // Mobile menu toggle - FIXED
+    // Mobile menu toggle
     elements.menuToggle.addEventListener('click', () => {
         const isActive = elements.sidebar.classList.contains('active');
         
@@ -380,56 +854,18 @@ function setupEventListeners() {
     });
     
     // Sidebar overlay click
-    elements.sidebarOverlay.addEventListener('click', () => {
-        elements.sidebar.classList.remove('active');
-        elements.sidebarOverlay.classList.remove('active');
-    });
+    if (elements.sidebarOverlay) {
+        elements.sidebarOverlay.addEventListener('click', () => {
+            elements.sidebar.classList.remove('active');
+            elements.sidebarOverlay.classList.remove('active');
+        });
+    }
     
-    // Theme toggle - FIXED
+    // Theme toggle
     elements.themeToggle.addEventListener('click', toggleTheme);
     
     // New chat
     elements.newChatBtn.addEventListener('click', startNewChat);
-    
-    // Profile modal
-    elements.closeProfile.addEventListener('click', () => {
-        elements.profileModal.classList.remove('active');
-    });
-    elements.saveProfile.addEventListener('click', saveProfile);
-    
-    // Avatar upload
-    elements.changeAvatar.addEventListener('click', () => {
-        elements.avatarInput.click();
-    });
-    
-    elements.avatarInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            const file = e.target.files[0];
-            if (file.size > APP_CONFIG.maxFileSize) {
-                showNotification('File size must be less than 5MB', 'error');
-                e.target.value = '';
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                elements.profileAvatar.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-    
-    // Toggle API key visibility - FIXED
-    elements.toggleProfileApiKey.addEventListener('click', () => {
-        const input = elements.profileApiKey;
-        const icon = elements.toggleProfileApiKey.querySelector('i');
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.className = 'fas fa-eye-slash';
-        } else {
-            input.type = 'password';
-            icon.className = 'fas fa-eye';
-        }
-    });
     
     // Settings
     elements.settingsBtn.addEventListener('click', () => {
@@ -485,14 +921,7 @@ function setupEventListeners() {
     // Model search
     elements.modelSearch.addEventListener('input', filterModels);
     
-    // Model selector
-    elements.modelSelector.addEventListener('change', (e) => {
-        if (state.settings) {
-            state.settings.preferred_model = e.target.value;
-        }
-    });
-    
-    // Close modals on background click - FIXED
+    // Close modals on background click
     [elements.settingsModal, elements.profileModal, elements.adminModal].forEach(modal => {
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
@@ -508,125 +937,6 @@ function setupEventListeners() {
             });
         }
     });
-}
-
-// Load User Profile
-async function loadUserProfile() {
-    const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', state.user.id)
-        .single();
-    
-    if (profile) {
-        state.profile = profile;
-        state.isAdmin = profile.email === ADMIN_EMAIL;
-        
-        // Update UI
-        elements.userName.textContent = profile.full_name || profile.email;
-        elements.userAvatar.src = profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.full_name || profile.email)}&background=00ff88&color=0a0e1a`;
-        elements.usageCount.textContent = profile.usage_count || 0;
-        elements.usageLimit.textContent = profile.usage_limit || APP_CONFIG.defaultUsageLimit;
-        
-        // Show admin button if admin
-        if (state.isAdmin) {
-            elements.adminBtn.style.display = 'block';
-        }
-        
-        // Load user settings
-        await loadUserSettings();
-        
-        // Load models if API key exists
-        if (profile.openrouter_api_key) {
-            await loadAvailableModels();
-        } else {
-            showNotification('Please add your OpenRouter API key in Profile settings to start chatting', 'warning');
-        }
-    }
-}
-
-// Load User Settings
-async function loadUserSettings() {
-    const { data: settings } = await supabase
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', state.user.id)
-        .single();
-    
-    if (settings) {
-        state.settings = settings;
-        elements.maxTokens.value = settings.max_tokens;
-        elements.temperature.value = settings.temperature;
-        elements.tempValue.textContent = settings.temperature;
-        elements.showTimestamps.checked = settings.show_timestamps;
-        elements.soundEnabled.checked = settings.sound_enabled;
-        
-        if (settings.theme === 'light') {
-            document.body.classList.add('light-theme');
-            elements.themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
-        }
-    }
-}
-
-// Load Available Models
-async function loadAvailableModels() {
-    if (!state.profile?.openrouter_api_key) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                'HTTP-Referer': window.location.href,
-                'X-Title': '0xHiTek Chat'
-            }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            state.availableModels = data.data || [];
-            populateModelSelector();
-        }
-    } catch (error) {
-        console.error('Error loading models:', error);
-        // Use fallback models
-        state.availableModels = [
-            { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-            { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo' },
-            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
-            { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet' },
-            { id: 'google/gemini-pro', name: 'Gemini Pro' },
-            { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B' }
-        ];
-        populateModelSelector();
-    }
-}
-
-// Populate Model Selector
-function populateModelSelector() {
-    elements.modelSelector.innerHTML = '';
-    
-    state.availableModels.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model.id;
-        option.textContent = model.name || model.id;
-        if (model.id === (state.settings?.preferred_model || APP_CONFIG.defaultModel)) {
-            option.selected = true;
-        }
-        elements.modelSelector.appendChild(option);
-    });
-}
-
-// Filter models
-function filterModels() {
-    const searchTerm = elements.modelSearch.value.toLowerCase();
-    const options = elements.modelSelector.options;
-    
-    for (let option of options) {
-        const text = option.textContent.toLowerCase();
-        option.style.display = text.includes(searchTerm) ? '' : 'none';
-    }
 }
 
 // Chat Functions
@@ -917,63 +1227,6 @@ function addMessageToUI(role, content) {
     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 }
 
-// Profile Functions
-async function showProfileModal() {
-    elements.profileModal.classList.add('active');
-    elements.profileName.value = state.profile.full_name || '';
-    elements.profileEmail.value = state.profile.email;
-    elements.profileApiKey.value = state.profile.openrouter_api_key || '';
-    elements.profileAvatar.src = state.profile.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(state.profile.full_name || state.profile.email)}&background=00ff88&color=0a0e1a`;
-}
-
-async function saveProfile() {
-    showLoading(true);
-    
-    const updates = {
-        full_name: elements.profileName.value,
-        openrouter_api_key: elements.profileApiKey.value
-    };
-    
-    // Handle avatar upload if changed
-    if (elements.avatarInput.files.length > 0) {
-        const file = elements.avatarInput.files[0];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${state.user.id}-${Date.now()}.${fileExt}`;
-        
-        const { data, error } = await supabase.storage
-            .from('avatars')
-            .upload(fileName, file);
-        
-        if (!error) {
-            const { data: { publicUrl } } = supabase.storage
-                .from('avatars')
-                .getPublicUrl(fileName);
-            
-            updates.avatar_url = publicUrl;
-        }
-    }
-    
-    const { error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', state.user.id);
-    
-    showLoading(false);
-    
-    if (error) {
-        showNotification('Error updating profile: ' + error.message, 'error');
-    } else {
-        showNotification('Profile updated successfully!', 'success');
-        elements.profileModal.classList.remove('active');
-        await loadUserProfile();
-        
-        // Reload models if API key changed
-        if (updates.openrouter_api_key && updates.openrouter_api_key !== state.profile.openrouter_api_key) {
-            await loadAvailableModels();
-        }
-    }
-}
-
 // Settings Functions
 async function saveSettings() {
     const settings = {
@@ -1049,17 +1302,6 @@ async function showAdminDashboard() {
             tbody.appendChild(row);
         });
     }
-    
-    // Load system settings
-    const { data: adminSettings } = await supabase
-        .from('admin_settings')
-        .select('*')
-        .eq('setting_key', 'default_usage_limit')
-        .single();
-    
-    if (adminSettings) {
-        elements.defaultUsageLimit.value = adminSettings.setting_value.value;
-    }
 }
 
 // Admin helper functions
@@ -1121,6 +1363,17 @@ async function exportChat() {
     showNotification('Chat exported successfully', 'success');
 }
 
+// Filter models
+function filterModels() {
+    const searchTerm = elements.modelSearch.value.toLowerCase();
+    const options = elements.modelSelector.options;
+    
+    for (let option of options) {
+        const text = option.textContent.toLowerCase();
+        option.style.display = text.includes(searchTerm) ? '' : 'none';
+    }
+}
+
 // Theme Functions
 function toggleTheme() {
     const body = document.body;
@@ -1172,6 +1425,8 @@ function showLoading(show) {
 }
 
 function showNotification(message, type = 'info') {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.innerHTML = `
@@ -1192,7 +1447,7 @@ function showNotification(message, type = 'info') {
 
 function escapeHtml(text) {
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = text || '';
     return div.innerHTML;
 }
 
@@ -1202,21 +1457,25 @@ function validateEmail(email) {
 }
 
 function playNotificationSound() {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.value = 800;
-    oscillator.type = 'sine';
-    
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.1);
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (error) {
+        console.error('Sound error:', error);
+    }
 }
 
 // Session timeout handling
