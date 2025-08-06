@@ -1374,7 +1374,7 @@ async function startNewChat() {
     }
 }
 
-// FULLY FIXED SEND MESSAGE WITH DEBUGGING
+// FIXED SEND MESSAGE WITH TIMEOUT AND ERROR RECOVERY
 async function sendMessage() {
     console.log('=== START SEND MESSAGE ===');
     
@@ -1387,23 +1387,35 @@ async function sendMessage() {
     
     if (!state.profile?.openrouter_api_key) {
         showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
-        console.error('No API key found');
         return;
     }
     
-    console.log('Message to send:', message);
-    console.log('Selected model:', elements.modelSelector.value);
-    console.log('API Key exists:', !!state.profile.openrouter_api_key);
+    console.log('Sending message:', message);
     
-    // Clear input immediately
+    // Clear input and disable send button
     elements.messageInput.value = '';
     elements.messageInput.style.height = 'auto';
     elements.sendBtn.disabled = true;
     
+    // Set a timeout to prevent infinite loading
+    let timeoutId;
+    const TIMEOUT_DURATION = 30000; // 30 seconds
+    
+    // Show loading
+    showLoading(true);
+    
     try {
+        // Set timeout to auto-clear loading if something goes wrong
+        timeoutId = setTimeout(() => {
+            console.error('Request timeout - clearing loading state');
+            showLoading(false);
+            elements.sendBtn.disabled = false;
+            showNotification('Request timed out. Please try again.', 'error');
+        }, TIMEOUT_DURATION);
+        
         // Create new chat if needed
         if (!state.currentChatId) {
-            console.log('No current chat, creating new one...');
+            console.log('Creating new chat...');
             
             const { data: chat, error } = await supabase
                 .from('chats')
@@ -1416,10 +1428,8 @@ async function sendMessage() {
                 .single();
             
             if (error) {
-                console.error('Failed to create chat:', error);
-                showNotification('Failed to create chat: ' + error.message, 'error');
-                elements.sendBtn.disabled = false;
-                return;
+                console.error('Chat creation error:', error);
+                throw new Error('Failed to create chat: ' + error.message);
             }
             
             if (chat) {
@@ -1427,25 +1437,20 @@ async function sendMessage() {
                 state.messages = [];
                 state.sessionTokens = 0;
                 elements.tokenCount.textContent = '0';
-                console.log('✅ New chat created:', chat.id);
                 
                 // Remove welcome message
                 const welcomeMsg = document.querySelector('.welcome-message');
                 if (welcomeMsg) welcomeMsg.remove();
+                
+                console.log('Chat created:', chat.id);
             }
         }
         
-        console.log('Using chat ID:', state.currentChatId);
-        
-        // Show loading
-        showLoading(true);
-        
-        // Add user message to UI immediately
-        console.log('Adding user message to UI...');
+        // Add user message to UI
         addMessageToUI('user', message);
         
         // Save user message to database
-        console.log('Saving user message to database...');
+        console.log('Saving message to database...');
         const { error: msgError } = await supabase
             .from('messages')
             .insert({
@@ -1456,15 +1461,16 @@ async function sendMessage() {
             });
         
         if (msgError) {
-            console.error('Error saving message:', msgError);
+            console.error('Message save error:', msgError);
+            // Continue anyway - don't fail the whole request
         }
         
-        // Prepare API messages
+        // Prepare messages for API
         const apiMessages = [
             { role: 'system', content: 'You are a helpful AI assistant.' }
         ];
         
-        // Add context from previous messages
+        // Add previous messages for context (limit to last 10)
         if (state.messages && state.messages.length > 0) {
             state.messages.slice(-10).forEach(msg => {
                 apiMessages.push({
@@ -1480,79 +1486,96 @@ async function sendMessage() {
             content: message
         });
         
-        console.log('API Messages prepared:', apiMessages);
+        console.log('Calling OpenRouter API...');
         
-        // IMPORTANT: Use CORS proxy to avoid browser blocking
-        const CORS_PROXY = 'https://corsproxy.io/?';
-        const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-        const PROXY_URL = CORS_PROXY + encodeURIComponent(API_URL);
-        
+        // Prepare request body
         const requestBody = {
             model: elements.modelSelector.value || 'openai/gpt-3.5-turbo',
             messages: apiMessages,
-            max_tokens: 2000,
-            temperature: 0.7,
+            max_tokens: parseInt(elements.maxTokens?.value || 2000),
+            temperature: parseFloat(elements.temperature?.value || 0.7),
             stream: false
         };
         
-        console.log('Making API request...');
-        console.log('URL:', PROXY_URL);
         console.log('Request body:', requestBody);
         
-        // Make the API call with proxy
-        const response = await fetch(PROXY_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': window.location.origin || 'http://localhost:3000',
-                'X-Title': '0xHiTek Chat'
-            },
-            body: JSON.stringify(requestBody)
-        }).catch(error => {
-            console.error('Fetch error:', error);
-            throw new Error('Network error: ' + error.message);
-        });
-        
-        console.log('Response received. Status:', response.status);
-        
-        const responseText = await response.text();
-        console.log('Response text:', responseText);
-        
+        // Try multiple methods to connect to OpenRouter
+        let response;
         let data;
+        let method = 'direct';
+        
+        // Method 1: Try direct connection first
         try {
-            data = JSON.parse(responseText);
-            console.log('Parsed response:', data);
-        } catch (e) {
-            console.error('Failed to parse JSON:', e);
-            
-            // Try alternative: Direct API without proxy
-            console.log('Trying direct API call without proxy...');
-            const directResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            console.log('Trying direct connection...');
+            response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
                     'Content-Type': 'application/json',
-                    'HTTP-Referer': window.location.origin,
+                    'HTTP-Referer': window.location.origin || 'http://localhost:3000',
                     'X-Title': '0xHiTek Chat'
                 },
                 body: JSON.stringify(requestBody)
             });
             
-            data = await directResponse.json();
-            console.log('Direct API response:', data);
+            if (response.ok) {
+                data = await response.json();
+                console.log('Direct connection successful');
+            } else {
+                throw new Error(`Direct connection failed: ${response.status}`);
+            }
+        } catch (directError) {
+            console.error('Direct connection failed:', directError.message);
+            
+            // Method 2: Try with CORS proxy
+            console.log('Trying CORS proxy...');
+            method = 'proxy';
+            
+            try {
+                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
+                response = await fetch(proxyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                data = await response.json();
+                console.log('Proxy connection successful');
+            } catch (proxyError) {
+                console.error('Proxy connection failed:', proxyError.message);
+                
+                // Method 3: Try alternative proxy
+                console.log('Trying alternative proxy...');
+                const altProxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
+                response = await fetch(altProxyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                data = await response.json();
+                console.log('Alternative proxy successful');
+            }
         }
         
-        // Check for errors in response
+        console.log('API Response:', data);
+        
+        // Check for API errors
         if (data.error) {
-            console.error('API Error:', data.error);
-            
             let errorMsg = data.error.message || data.error;
             
-            if (data.error.code === 'insufficient_quota') {
-                errorMsg = 'No credits remaining. Please add credits at openrouter.ai';
+            if (data.error.code === 'insufficient_quota' || errorMsg.includes('quota')) {
+                errorMsg = 'No credits remaining. Please add credits at openrouter.ai/credits';
             } else if (data.error.code === 'invalid_api_key') {
                 errorMsg = 'Invalid API key. Please check your OpenRouter API key.';
+            } else if (data.error.code === 'model_not_found') {
+                errorMsg = 'Selected model not available. Please choose another model.';
             }
             
             throw new Error(errorMsg);
@@ -1560,25 +1583,27 @@ async function sendMessage() {
         
         // Extract AI response
         if (!data.choices || data.choices.length === 0) {
-            console.error('No choices in response:', data);
-            throw new Error('No response from AI');
+            throw new Error('No response from AI model');
         }
         
         const assistantMessage = data.choices[0].message?.content || data.choices[0].text;
         
         if (!assistantMessage) {
-            console.error('Empty assistant message:', data.choices[0]);
-            throw new Error('Empty response from AI');
+            throw new Error('Empty response from AI model');
         }
         
-        console.log('✅ AI Response received:', assistantMessage);
+        console.log('AI Response:', assistantMessage);
         
         // Add AI response to UI
         addMessageToUI('assistant', assistantMessage);
         
-        // Save AI response to database
+        // Update token count
         const tokensUsed = data.usage?.total_tokens || 0;
-        await supabase
+        state.sessionTokens += tokensUsed;
+        elements.tokenCount.textContent = state.sessionTokens;
+        
+        // Save AI response to database (don't wait for it)
+        supabase
             .from('messages')
             .insert({
                 chat_id: state.currentChatId,
@@ -1586,7 +1611,9 @@ async function sendMessage() {
                 role: 'assistant',
                 content: assistantMessage,
                 tokens: tokensUsed
-            });
+            })
+            .then(() => console.log('Assistant message saved'))
+            .catch(err => console.error('Error saving assistant message:', err));
         
         // Update state
         state.messages.push(
@@ -1594,35 +1621,86 @@ async function sendMessage() {
             { role: 'assistant', content: assistantMessage }
         );
         
-        // Update token count
-        state.sessionTokens += tokensUsed;
-        elements.tokenCount.textContent = state.sessionTokens;
-        
-        // Update usage
+        // Update usage count (don't wait for it)
         const newUsageCount = (state.profile.usage_count || 0) + tokensUsed;
         state.profile.usage_count = newUsageCount;
         elements.usageCount.textContent = newUsageCount;
         
-        console.log('✅ Message sent successfully!');
-        showNotification('Response received!', 'success');
+        supabase
+            .from('profiles')
+            .update({ usage_count: newUsageCount })
+            .eq('id', state.user.id)
+            .then(() => console.log('Usage updated'))
+            .catch(err => console.error('Error updating usage:', err));
+        
+        // Success!
+        console.log('✅ Message sent successfully via', method);
+        
+        // Play sound if enabled
+        if (state.settings?.sound_enabled) {
+            playNotificationSound();
+        }
         
     } catch (error) {
-        console.error('❌ SEND MESSAGE ERROR:', error);
+        console.error('❌ Send message error:', error);
         showNotification(`Error: ${error.message}`, 'error');
         
-        // Remove user message on error
+        // Remove the user message on error
         const messages = elements.messagesContainer.querySelectorAll('.message');
         const lastMessage = messages[messages.length - 1];
         if (lastMessage && lastMessage.classList.contains('user')) {
             lastMessage.remove();
         }
     } finally {
+        // ALWAYS clear loading state and re-enable button
+        console.log('Cleaning up...');
+        
+        // Clear timeout
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        
+        // Hide loading
         showLoading(false);
+        
+        // Re-enable send button
         elements.sendBtn.disabled = false;
+        
+        // Focus input
         elements.messageInput.focus();
+        
         console.log('=== END SEND MESSAGE ===');
     }
 }
+
+// Add this helper function to ensure loading state is properly managed
+function showLoading(show) {
+    console.log('showLoading called with:', show);
+    
+    if (!elements.loadingOverlay) {
+        console.error('Loading overlay element not found!');
+        return;
+    }
+    
+    if (show) {
+        elements.loadingOverlay.classList.add('active');
+        elements.loadingOverlay.style.display = 'flex';
+    } else {
+        elements.loadingOverlay.classList.remove('active');
+        // Use timeout to allow animation to complete
+        setTimeout(() => {
+            elements.loadingOverlay.style.display = 'none';
+        }, 300);
+    }
+}
+
+// Add an emergency stop function you can call from console
+window.stopLoading = function() {
+    console.log('Emergency stop loading...');
+    showLoading(false);
+    elements.sendBtn.disabled = false;
+    elements.messageInput.disabled = false;
+};
 
 // Add this helper function to test the connection
 async function testOpenRouterDirectly() {
