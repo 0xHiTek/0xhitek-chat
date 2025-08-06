@@ -308,6 +308,38 @@ function setupAuthListeners() {
     });
 }
 
+// Emergency function to unstick the UI
+window.fixStuckUI = function() {
+    console.log('Fixing stuck UI...');
+    
+    // Hide loading
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    if (loadingOverlay) {
+        loadingOverlay.classList.remove('active');
+        loadingOverlay.style.display = 'none';
+    }
+    
+    // Re-enable send button
+    const sendBtn = document.getElementById('sendBtn');
+    if (sendBtn) {
+        sendBtn.disabled = false;
+    }
+    
+    // Re-enable input
+    const messageInput = document.getElementById('messageInput');
+    if (messageInput) {
+        messageInput.disabled = false;
+    }
+    
+    console.log('UI fixed!');
+};
+
+// Add keyboard shortcut to fix stuck UI (Ctrl+Shift+X)
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.shiftKey && e.key === 'X') {
+        fixStuckUI();
+    }
+});
 // Load User Profile - FIXED
 async function loadUserProfile() {
     try {
