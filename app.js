@@ -49,6 +49,10 @@ const elements = {
     historyList: document.getElementById('historyList'),
     usageCount: document.getElementById('usageCount'),
     usageLimit: document.getElementById('usageLimit'),
+
+    // User menu elements
+    userMenu: document.getElementById('userMenu'),
+    userDropdown: document.getElementById('userDropdown'),
     
     // Settings elements
     settingsBtn: document.getElementById('settingsBtn'),
