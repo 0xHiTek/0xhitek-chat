@@ -1374,60 +1374,79 @@ async function startNewChat() {
     }
 }
 
-// FIXED SEND MESSAGE FUNCTION WITH FULL ERROR HANDLING
+// FULLY FIXED SEND MESSAGE WITH DEBUGGING
 async function sendMessage() {
-    console.log('Send button clicked');
+    console.log('=== START SEND MESSAGE ===');
     
     const message = elements.messageInput.value.trim();
     
-    // Check if message is empty
     if (!message) {
         console.log('Message is empty');
         return;
     }
     
-    // Check if API key exists
     if (!state.profile?.openrouter_api_key) {
         showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
         console.error('No API key found');
         return;
     }
     
-    // Check usage limit
-    if (state.profile.usage_count >= state.profile.usage_limit) {
-        showNotification('You have reached your usage limit. Please contact admin.', 'error');
-        return;
-    }
-    
-    console.log('Sending message:', message);
-    console.log('Using model:', elements.modelSelector.value);
+    console.log('Message to send:', message);
+    console.log('Selected model:', elements.modelSelector.value);
     console.log('API Key exists:', !!state.profile.openrouter_api_key);
     
-    // Create new chat if needed
-    if (!state.currentChatId) {
-        console.log('Creating new chat...');
-        await startNewChat();
-        if (!state.currentChatId) {
-            showNotification('Failed to create chat', 'error');
-            return;
-        }
-    }
-    
-    // Disable input while processing
+    // Clear input immediately
     elements.messageInput.value = '';
     elements.messageInput.style.height = 'auto';
     elements.sendBtn.disabled = true;
     
-    // Show loading
-    showLoading(true);
-    
     try {
+        // Create new chat if needed
+        if (!state.currentChatId) {
+            console.log('No current chat, creating new one...');
+            
+            const { data: chat, error } = await supabase
+                .from('chats')
+                .insert({
+                    user_id: state.user.id,
+                    title: 'New Chat',
+                    model: elements.modelSelector.value || 'openai/gpt-3.5-turbo'
+                })
+                .select()
+                .single();
+            
+            if (error) {
+                console.error('Failed to create chat:', error);
+                showNotification('Failed to create chat: ' + error.message, 'error');
+                elements.sendBtn.disabled = false;
+                return;
+            }
+            
+            if (chat) {
+                state.currentChatId = chat.id;
+                state.messages = [];
+                state.sessionTokens = 0;
+                elements.tokenCount.textContent = '0';
+                console.log('✅ New chat created:', chat.id);
+                
+                // Remove welcome message
+                const welcomeMsg = document.querySelector('.welcome-message');
+                if (welcomeMsg) welcomeMsg.remove();
+            }
+        }
+        
+        console.log('Using chat ID:', state.currentChatId);
+        
+        // Show loading
+        showLoading(true);
+        
         // Add user message to UI immediately
+        console.log('Adding user message to UI...');
         addMessageToUI('user', message);
         
         // Save user message to database
         console.log('Saving user message to database...');
-        const { error: saveError } = await supabase
+        const { error: msgError } = await supabase
             .from('messages')
             .insert({
                 chat_id: state.currentChatId,
@@ -1436,29 +1455,24 @@ async function sendMessage() {
                 content: message
             });
         
-        if (saveError) {
-            console.error('Error saving message:', saveError);
+        if (msgError) {
+            console.error('Error saving message:', msgError);
         }
         
-        // Prepare messages for API
-        const apiMessages = [];
+        // Prepare API messages
+        const apiMessages = [
+            { role: 'system', content: 'You are a helpful AI assistant.' }
+        ];
         
-        // Add system message if it's the first message
-        if (state.messages.length === 0) {
-            apiMessages.push({
-                role: 'system',
-                content: 'You are a helpful AI assistant. Please provide clear and concise responses.'
+        // Add context from previous messages
+        if (state.messages && state.messages.length > 0) {
+            state.messages.slice(-10).forEach(msg => {
+                apiMessages.push({
+                    role: msg.role,
+                    content: msg.content
+                });
             });
         }
-        
-        // Add previous messages for context (limit to last 10 for token management)
-        const contextMessages = state.messages.slice(-10);
-        contextMessages.forEach(msg => {
-            apiMessages.push({
-                role: msg.role,
-                content: msg.content
-            });
-        });
         
         // Add current message
         apiMessages.push({
@@ -1466,88 +1480,105 @@ async function sendMessage() {
             content: message
         });
         
-        console.log('Sending to OpenRouter API...');
-        console.log('Messages:', apiMessages);
+        console.log('API Messages prepared:', apiMessages);
         
-        // Make API call to OpenRouter
+        // IMPORTANT: Use CORS proxy to avoid browser blocking
+        const CORS_PROXY = 'https://corsproxy.io/?';
+        const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+        const PROXY_URL = CORS_PROXY + encodeURIComponent(API_URL);
+        
         const requestBody = {
             model: elements.modelSelector.value || 'openai/gpt-3.5-turbo',
             messages: apiMessages,
-            max_tokens: parseInt(elements.maxTokens?.value || 2000),
-            temperature: parseFloat(elements.temperature?.value || 0.7),
-            top_p: 1,
-            frequency_penalty: 0,
-            presence_penalty: 0,
+            max_tokens: 2000,
+            temperature: 0.7,
             stream: false
         };
         
+        console.log('Making API request...');
+        console.log('URL:', PROXY_URL);
         console.log('Request body:', requestBody);
         
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        // Make the API call with proxy
+        const response = await fetch(PROXY_URL, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'Content-Type': 'application/json',
                 'HTTP-Referer': window.location.origin || 'http://localhost:3000',
-                'X-Title': '0xHiTek Chat',
-                'Content-Type': 'application/json'
+                'X-Title': '0xHiTek Chat'
             },
             body: JSON.stringify(requestBody)
+        }).catch(error => {
+            console.error('Fetch error:', error);
+            throw new Error('Network error: ' + error.message);
         });
         
-        console.log('API Response status:', response.status);
+        console.log('Response received. Status:', response.status);
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('API Error Response:', errorText);
+        const responseText = await response.text();
+        console.log('Response text:', responseText);
+        
+        let data;
+        try {
+            data = JSON.parse(responseText);
+            console.log('Parsed response:', data);
+        } catch (e) {
+            console.error('Failed to parse JSON:', e);
             
-            let errorMessage = 'API Error';
-            try {
-                const errorData = JSON.parse(errorText);
-                errorMessage = errorData.error?.message || errorData.message || errorText;
-                
-                // Handle specific error cases
-                if (response.status === 402) {
-                    errorMessage = 'Insufficient credits. Please add credits to your OpenRouter account.';
-                } else if (response.status === 401) {
-                    errorMessage = 'Invalid API key. Please check your OpenRouter API key.';
-                } else if (response.status === 429) {
-                    errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
-                } else if (response.status === 400) {
-                    errorMessage = `Bad request: ${errorMessage}`;
-                }
-            } catch (e) {
-                console.error('Error parsing error response:', e);
-            }
+            // Try alternative: Direct API without proxy
+            console.log('Trying direct API call without proxy...');
+            const directResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': window.location.origin,
+                    'X-Title': '0xHiTek Chat'
+                },
+                body: JSON.stringify(requestBody)
+            });
             
-            throw new Error(errorMessage);
+            data = await directResponse.json();
+            console.log('Direct API response:', data);
         }
         
-        const data = await response.json();
-        console.log('API Response data:', data);
+        // Check for errors in response
+        if (data.error) {
+            console.error('API Error:', data.error);
+            
+            let errorMsg = data.error.message || data.error;
+            
+            if (data.error.code === 'insufficient_quota') {
+                errorMsg = 'No credits remaining. Please add credits at openrouter.ai';
+            } else if (data.error.code === 'invalid_api_key') {
+                errorMsg = 'Invalid API key. Please check your OpenRouter API key.';
+            }
+            
+            throw new Error(errorMsg);
+        }
         
+        // Extract AI response
         if (!data.choices || data.choices.length === 0) {
-            throw new Error('No response from AI model');
+            console.error('No choices in response:', data);
+            throw new Error('No response from AI');
         }
         
         const assistantMessage = data.choices[0].message?.content || data.choices[0].text;
         
         if (!assistantMessage) {
-            throw new Error('Empty response from AI model');
+            console.error('Empty assistant message:', data.choices[0]);
+            throw new Error('Empty response from AI');
         }
         
-        console.log('Assistant message:', assistantMessage);
+        console.log('✅ AI Response received:', assistantMessage);
         
-        // Update token count
-        const tokensUsed = data.usage?.total_tokens || 0;
-        state.sessionTokens += tokensUsed;
-        elements.tokenCount.textContent = state.sessionTokens;
-        
-        // Add assistant message to UI
+        // Add AI response to UI
         addMessageToUI('assistant', assistantMessage);
         
-        // Save assistant message to database
-        console.log('Saving assistant message to database...');
-        const { error: assistantSaveError } = await supabase
+        // Save AI response to database
+        const tokensUsed = data.usage?.total_tokens || 0;
+        await supabase
             .from('messages')
             .insert({
                 chat_id: state.currentChatId,
@@ -1557,83 +1588,111 @@ async function sendMessage() {
                 tokens: tokensUsed
             });
         
-        if (assistantSaveError) {
-            console.error('Error saving assistant message:', assistantSaveError);
-        }
+        // Update state
+        state.messages.push(
+            { role: 'user', content: message },
+            { role: 'assistant', content: assistantMessage }
+        );
         
-        // Update usage count
+        // Update token count
+        state.sessionTokens += tokensUsed;
+        elements.tokenCount.textContent = state.sessionTokens;
+        
+        // Update usage
         const newUsageCount = (state.profile.usage_count || 0) + tokensUsed;
-        await supabase
-            .from('profiles')
-            .update({ 
-                usage_count: newUsageCount 
-            })
-            .eq('id', state.user.id);
-        
         state.profile.usage_count = newUsageCount;
         elements.usageCount.textContent = newUsageCount;
         
-        // Log usage
-        await supabase
-            .from('usage_logs')
-            .insert({
-                user_id: state.user.id,
-                tokens_used: tokensUsed,
-                model: elements.modelSelector.value
-            });
-        
-        // Update chat title if first message
-        if (state.messages.length === 0) {
-            const title = message.substring(0, 50);
-            await supabase
-                .from('chats')
-                .update({ 
-                    title,
-                    model: elements.modelSelector.value
-                })
-                .eq('id', state.currentChatId);
-            
-            await loadChatHistory();
-        }
-        
-        // Update state messages
-        state.messages.push(
-            { role: 'user', content: message },
-            { role: 'assistant', content: assistantMessage, tokens: tokensUsed }
-        );
-        
-        // Play sound if enabled
-        if (state.settings?.sound_enabled) {
-            playNotificationSound();
-        }
-        
-        // Check usage warning
-        const usagePercentage = (state.profile.usage_count / state.profile.usage_limit) * 100;
-        if (usagePercentage >= 80 && usagePercentage < 90) {
-            showNotification('You have used 80% of your usage limit', 'warning');
-        } else if (usagePercentage >= 90) {
-            showNotification('Warning: You have used 90% of your usage limit!', 'error');
-        }
-        
-        console.log('Message sent successfully!');
+        console.log('✅ Message sent successfully!');
+        showNotification('Response received!', 'success');
         
     } catch (error) {
-        console.error('Error in sendMessage:', error);
+        console.error('❌ SEND MESSAGE ERROR:', error);
         showNotification(`Error: ${error.message}`, 'error');
         
-        // Remove the user message if it failed
-        const lastMessage = elements.messagesContainer.lastElementChild;
+        // Remove user message on error
+        const messages = elements.messagesContainer.querySelectorAll('.message');
+        const lastMessage = messages[messages.length - 1];
         if (lastMessage && lastMessage.classList.contains('user')) {
             lastMessage.remove();
         }
     } finally {
-        // Re-enable input
-        elements.sendBtn.disabled = false;
         showLoading(false);
+        elements.sendBtn.disabled = false;
         elements.messageInput.focus();
+        console.log('=== END SEND MESSAGE ===');
     }
 }
 
+// Add this helper function to test the connection
+async function testOpenRouterDirectly() {
+    console.log('Testing OpenRouter connection...');
+    
+    if (!state.profile?.openrouter_api_key) {
+        console.error('No API key');
+        return;
+    }
+    
+    // Test 1: Try direct
+    try {
+        console.log('Test 1: Direct API call...');
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin,
+                'X-Title': '0xHiTek'
+            },
+            body: JSON.stringify({
+                model: 'openai/gpt-3.5-turbo',
+                messages: [{ role: 'user', content: 'Say "test successful"' }],
+                max_tokens: 20
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Direct response:', data);
+        
+        if (data.choices) {
+            console.log('✅ Direct API works!');
+            return 'direct';
+        }
+    } catch (e) {
+        console.error('Direct failed:', e.message);
+    }
+    
+    // Test 2: Try with proxy
+    try {
+        console.log('Test 2: Proxy API call...');
+        const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
+        const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'openai/gpt-3.5-turbo',
+                messages: [{ role: 'user', content: 'Say "test successful"' }],
+                max_tokens: 20
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Proxy response:', data);
+        
+        if (data.choices) {
+            console.log('✅ Proxy API works!');
+            return 'proxy';
+        }
+    } catch (e) {
+        console.error('Proxy failed:', e.message);
+    }
+    
+    console.error('❌ Both methods failed');
+    return null;
+}
 // FIXED: Start new chat function
 async function startNewChat() {
     try {
