@@ -340,6 +340,29 @@ document.addEventListener('keydown', function(e) {
         fixStuckUI();
     }
 });
+
+// Simulate typing effect for non-streaming responses
+async function simulateTyping(messageDiv, fullText, speed = 30) {
+    let currentText = '';
+    const textElement = messageDiv.querySelector('.message-text');
+    
+    for (let i = 0; i < fullText.length; i++) {
+        currentText += fullText[i];
+        
+        // Update UI
+        textElement.innerHTML = formatMessageContent(currentText) + '<span class="streaming-cursor">▊</span>';
+        
+        // Scroll to bottom
+        elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+        
+        // Wait for next character
+        await new Promise(resolve => setTimeout(resolve, speed));
+    }
+    
+    // Remove cursor
+    finalizeStreamingMessage(messageDiv);
+}
+
 // Load User Profile - FIXED
 async function loadUserProfile() {
     try {
