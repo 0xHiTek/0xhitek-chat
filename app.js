@@ -1406,9 +1406,9 @@ async function startNewChat() {
     }
 }
 
-// FIXED SEND MESSAGE WITH TIMEOUT AND ERROR RECOVERY
+// STREAMING SEND MESSAGE - Live text generation
 async function sendMessage() {
-    console.log('=== START SEND MESSAGE ===');
+    console.log('=== START SEND MESSAGE (STREAMING) ===');
     
     const message = elements.messageInput.value.trim();
     
@@ -1429,22 +1429,14 @@ async function sendMessage() {
     elements.messageInput.style.height = 'auto';
     elements.sendBtn.disabled = true;
     
-    // Set a timeout to prevent infinite loading
-    let timeoutId;
-    const TIMEOUT_DURATION = 30000; // 30 seconds
-    
     // Show loading
     showLoading(true);
     
+    let assistantMessageDiv = null;
+    let assistantMessageContent = '';
+    let streamController = null;
+    
     try {
-        // Set timeout to auto-clear loading if something goes wrong
-        timeoutId = setTimeout(() => {
-            console.error('Request timeout - clearing loading state');
-            showLoading(false);
-            elements.sendBtn.disabled = false;
-            showNotification('Request timed out. Please try again.', 'error');
-        }, TIMEOUT_DURATION);
-        
         // Create new chat if needed
         if (!state.currentChatId) {
             console.log('Creating new chat...');
@@ -1460,7 +1452,6 @@ async function sendMessage() {
                 .single();
             
             if (error) {
-                console.error('Chat creation error:', error);
                 throw new Error('Failed to create chat: ' + error.message);
             }
             
@@ -1482,8 +1473,7 @@ async function sendMessage() {
         addMessageToUI('user', message);
         
         // Save user message to database
-        console.log('Saving message to database...');
-        const { error: msgError } = await supabase
+        await supabase
             .from('messages')
             .insert({
                 chat_id: state.currentChatId,
@@ -1492,17 +1482,12 @@ async function sendMessage() {
                 content: message
             });
         
-        if (msgError) {
-            console.error('Message save error:', msgError);
-            // Continue anyway - don't fail the whole request
-        }
-        
         // Prepare messages for API
         const apiMessages = [
             { role: 'system', content: 'You are a helpful AI assistant.' }
         ];
         
-        // Add previous messages for context (limit to last 10)
+        // Add context
         if (state.messages && state.messages.length > 0) {
             state.messages.slice(-10).forEach(msg => {
                 apiMessages.push({
@@ -1518,164 +1503,102 @@ async function sendMessage() {
             content: message
         });
         
-        console.log('Calling OpenRouter API...');
-        
-        // Prepare request body
+        // Prepare request body WITH STREAMING
         const requestBody = {
             model: elements.modelSelector.value || 'openai/gpt-3.5-turbo',
             messages: apiMessages,
             max_tokens: parseInt(elements.maxTokens?.value || 2000),
             temperature: parseFloat(elements.temperature?.value || 0.7),
-            stream: false
+            stream: true // ENABLE STREAMING
         };
         
-        console.log('Request body:', requestBody);
+        console.log('Starting streaming request...');
         
-        // Try multiple methods to connect to OpenRouter
-        let response;
-        let data;
-        let method = 'direct';
+        // Hide loading since streaming will start immediately
+        showLoading(false);
         
-        // Method 1: Try direct connection first
-        try {
-            console.log('Trying direct connection...');
-            response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        // Create assistant message div immediately
+        assistantMessageDiv = createStreamingMessageUI();
+        
+        // Try to connect with streaming
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': window.location.origin || 'http://localhost:3000',
+                'X-Title': '0xHiTek Chat'
+            },
+            body: JSON.stringify(requestBody)
+        }).catch(async (error) => {
+            // If direct fails, try with proxy (note: some proxies don't support streaming)
+            console.log('Direct streaming failed, trying proxy...');
+            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
+            return fetch(proxyUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': window.location.origin || 'http://localhost:3000',
-                    'X-Title': '0xHiTek Chat'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(requestBody)
             });
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error?.message || `API Error: ${response.status}`);
+        }
+        
+        // Check if response is streaming
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('text/event-stream')) {
+            // Handle SSE streaming
+            await handleSSEStream(response, assistantMessageDiv);
+        } else {
+            // Handle non-streaming response (fallback)
+            console.log('Non-streaming response detected, falling back...');
+            const data = await response.json();
             
-            if (response.ok) {
-                data = await response.json();
-                console.log('Direct connection successful');
-            } else {
-                throw new Error(`Direct connection failed: ${response.status}`);
+            if (data.error) {
+                throw new Error(data.error.message || data.error);
             }
-        } catch (directError) {
-            console.error('Direct connection failed:', directError.message);
             
-            // Method 2: Try with CORS proxy
-            console.log('Trying CORS proxy...');
-            method = 'proxy';
-            
-            try {
-                const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
-                response = await fetch(proxyUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
+            if (data.choices && data.choices[0]) {
+                const content = data.choices[0].message?.content || data.choices[0].text;
+                updateStreamingMessage(assistantMessageDiv, content, true);
+                assistantMessageContent = content;
+            }
+        }
+        
+        // Save complete assistant message to database
+        if (assistantMessageContent) {
+            await supabase
+                .from('messages')
+                .insert({
+                    chat_id: state.currentChatId,
+                    user_id: state.user.id,
+                    role: 'assistant',
+                    content: assistantMessageContent,
+                    tokens: 0 // Will be updated later
                 });
-                
-                data = await response.json();
-                console.log('Proxy connection successful');
-            } catch (proxyError) {
-                console.error('Proxy connection failed:', proxyError.message);
-                
-                // Method 3: Try alternative proxy
-                console.log('Trying alternative proxy...');
-                const altProxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://openrouter.ai/api/v1/chat/completions');
-                response = await fetch(altProxyUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-                
-                data = await response.json();
-                console.log('Alternative proxy successful');
-            }
-        }
-        
-        console.log('API Response:', data);
-        
-        // Check for API errors
-        if (data.error) {
-            let errorMsg = data.error.message || data.error;
             
-            if (data.error.code === 'insufficient_quota' || errorMsg.includes('quota')) {
-                errorMsg = 'No credits remaining. Please add credits at openrouter.ai/credits';
-            } else if (data.error.code === 'invalid_api_key') {
-                errorMsg = 'Invalid API key. Please check your OpenRouter API key.';
-            } else if (data.error.code === 'model_not_found') {
-                errorMsg = 'Selected model not available. Please choose another model.';
-            }
-            
-            throw new Error(errorMsg);
+            // Update state
+            state.messages.push(
+                { role: 'user', content: message },
+                { role: 'assistant', content: assistantMessageContent }
+            );
         }
         
-        // Extract AI response
-        if (!data.choices || data.choices.length === 0) {
-            throw new Error('No response from AI model');
-        }
-        
-        const assistantMessage = data.choices[0].message?.content || data.choices[0].text;
-        
-        if (!assistantMessage) {
-            throw new Error('Empty response from AI model');
-        }
-        
-        console.log('AI Response:', assistantMessage);
-        
-        // Add AI response to UI
-        addMessageToUI('assistant', assistantMessage);
-        
-        // Update token count
-        const tokensUsed = data.usage?.total_tokens || 0;
-        state.sessionTokens += tokensUsed;
-        elements.tokenCount.textContent = state.sessionTokens;
-        
-        // Save AI response to database (don't wait for it)
-        supabase
-            .from('messages')
-            .insert({
-                chat_id: state.currentChatId,
-                user_id: state.user.id,
-                role: 'assistant',
-                content: assistantMessage,
-                tokens: tokensUsed
-            })
-            .then(() => console.log('Assistant message saved'))
-            .catch(err => console.error('Error saving assistant message:', err));
-        
-        // Update state
-        state.messages.push(
-            { role: 'user', content: message },
-            { role: 'assistant', content: assistantMessage }
-        );
-        
-        // Update usage count (don't wait for it)
-        const newUsageCount = (state.profile.usage_count || 0) + tokensUsed;
-        state.profile.usage_count = newUsageCount;
-        elements.usageCount.textContent = newUsageCount;
-        
-        supabase
-            .from('profiles')
-            .update({ usage_count: newUsageCount })
-            .eq('id', state.user.id)
-            .then(() => console.log('Usage updated'))
-            .catch(err => console.error('Error updating usage:', err));
-        
-        // Success!
-        console.log('✅ Message sent successfully via', method);
-        
-        // Play sound if enabled
-        if (state.settings?.sound_enabled) {
-            playNotificationSound();
-        }
+        console.log('✅ Streaming message completed');
         
     } catch (error) {
         console.error('❌ Send message error:', error);
         showNotification(`Error: ${error.message}`, 'error');
+        
+        // Remove the assistant message div if it was created
+        if (assistantMessageDiv) {
+            assistantMessageDiv.remove();
+        }
         
         // Remove the user message on error
         const messages = elements.messagesContainer.querySelectorAll('.message');
@@ -1684,27 +1607,198 @@ async function sendMessage() {
             lastMessage.remove();
         }
     } finally {
-        // ALWAYS clear loading state and re-enable button
-        console.log('Cleaning up...');
-        
-        // Clear timeout
-        if (timeoutId) {
-            clearTimeout(timeoutId);
-        }
-        
-        // Hide loading
         showLoading(false);
-        
-        // Re-enable send button
         elements.sendBtn.disabled = false;
-        
-        // Focus input
         elements.messageInput.focus();
-        
         console.log('=== END SEND MESSAGE ===');
     }
 }
 
+// Handle Server-Sent Events stream
+async function handleSSEStream(response, messageDiv) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+    
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+                console.log('Stream complete');
+                break;
+            }
+            
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Process complete SSE messages
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6).trim();
+                    
+                    if (data === '[DONE]') {
+                        console.log('Stream finished');
+                        finalizeStreamingMessage(messageDiv);
+                        return fullContent;
+                    }
+                    
+                    try {
+                        const parsed = JSON.parse(data);
+                        
+                        if (parsed.choices && parsed.choices[0]) {
+                            const delta = parsed.choices[0].delta;
+                            if (delta && delta.content) {
+                                fullContent += delta.content;
+                                updateStreamingMessage(messageDiv, fullContent, false);
+                            }
+                        }
+                        
+                        // Handle errors in stream
+                        if (parsed.error) {
+                            throw new Error(parsed.error.message || parsed.error);
+                        }
+                    } catch (e) {
+                        if (e instanceof SyntaxError) {
+                            console.warn('Failed to parse SSE data:', data);
+                        } else {
+                            throw e;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Stream error:', error);
+        throw error;
+    } finally {
+        reader.releaseLock();
+    }
+    
+    return fullContent;
+}
+
+// Create streaming message UI
+function createStreamingMessageUI() {
+    // Remove welcome message if exists
+    const welcomeMsg = document.querySelector('.welcome-message');
+    if (welcomeMsg) {
+        welcomeMsg.remove();
+    }
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant streaming';
+    
+    const timestamp = state.settings?.show_timestamps 
+        ? new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+        : '';
+    
+    messageDiv.innerHTML = `
+        <div class="message-avatar">
+            <i class="fas fa-robot"></i>
+        </div>
+        <div class="message-content">
+            <div class="message-header">
+                <span class="message-role">AI</span>
+                ${timestamp ? `<span class="message-time">${timestamp}</span>` : ''}
+            </div>
+            <div class="message-text">
+                <span class="streaming-cursor">▊</span>
+            </div>
+        </div>
+    `;
+    
+    elements.messagesContainer.appendChild(messageDiv);
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+    
+    return messageDiv;
+}
+
+// Update streaming message content
+function updateStreamingMessage(messageDiv, content, isComplete) {
+    const textElement = messageDiv.querySelector('.message-text');
+    
+    if (textElement) {
+        // Format content with proper HTML
+        let formattedContent = formatMessageContent(content);
+        
+        // Add cursor if still streaming
+        if (!isComplete) {
+            formattedContent += '<span class="streaming-cursor">▊</span>';
+        }
+        
+        textElement.innerHTML = formattedContent;
+        
+        // Auto-scroll to bottom
+        elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+    }
+}
+
+// Finalize streaming message
+function finalizeStreamingMessage(messageDiv) {
+    // Remove streaming class and cursor
+    messageDiv.classList.remove('streaming');
+    const cursor = messageDiv.querySelector('.streaming-cursor');
+    if (cursor) {
+        cursor.remove();
+    }
+    
+    // Play sound if enabled
+    if (state.settings?.sound_enabled) {
+        playNotificationSound();
+    }
+}
+
+// Alternative: Handle streaming with fetch + ReadableStream (for better browser support)
+async function handleStreamingResponse(response, messageDiv) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let buffer = '';
+    
+    while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+            finalizeStreamingMessage(messageDiv);
+            return fullContent;
+        }
+        
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        
+        // Try to parse complete JSON objects from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+            if (line.trim().startsWith('data: ')) {
+                const jsonStr = line.replace('data: ', '').trim();
+                
+                if (jsonStr === '[DONE]') {
+                    finalizeStreamingMessage(messageDiv);
+                    return fullContent;
+                }
+                
+                try {
+                    const data = JSON.parse(jsonStr);
+                    
+                    if (data.choices && data.choices[0].delta) {
+                        const deltaContent = data.choices[0].delta.content || '';
+                        fullContent += deltaContent;
+                        updateStreamingMessage(messageDiv, fullContent, false);
+                    }
+                } catch (e) {
+                    // Skip invalid JSON
+                    continue;
+                }
+            }
+        }
+    }
+}
 // Add this helper function to ensure loading state is properly managed
 function showLoading(show) {
     console.log('showLoading called with:', show);
