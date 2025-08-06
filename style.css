@@ -45,6 +45,17 @@ body {
     position: relative;
 }
 
+/* Loading state for messages */
+.message.loading {
+    opacity: 0.6;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+}
+
 /* Animated Background */
 body::before {
     content: '';
