@@ -86,24 +86,23 @@
                 </div>
                 <h1 class="logo-text"><span class="zero">0x</span><span class="hi">Hi</span><span class="tek">Tek</span></h1>
             </div>
-            <!-- In the header-controls section, update the user-menu -->
-                <div class="header-controls">
-                    <div class="user-menu" id="userMenu">
-                        <img id="userAvatar" class="user-avatar" src="" alt="Avatar">
-                        <span id="userName" class="user-name"></span>
-                        <div class="user-dropdown" id="userDropdown">
-                            <a href="#" id="profileBtn"><i class="fas fa-user"></i> Profile</a>
-                            <a href="#" id="adminBtn" style="display: none;"><i class="fas fa-crown"></i> Admin</a>
-                            <a href="#" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</a>
-                        </div>
+            <div class="header-controls">
+                <div class="user-menu" id="userMenu">
+                    <img id="userAvatar" class="user-avatar" src="" alt="Avatar">
+                    <span id="userName" class="user-name"></span>
+                    <div class="user-dropdown" id="userDropdown">
+                        <a href="#" id="profileBtn"><i class="fas fa-user"></i> Profile</a>
+                        <a href="#" id="adminBtn" style="display: none;"><i class="fas fa-crown"></i> Admin</a>
+                        <a href="#" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</a>
                     </div>
-                    <button class="theme-toggle" id="themeToggle">
-                        <i class="fas fa-moon"></i>
-                    </button>
-                    <button class="menu-toggle" id="menuToggle">
-                        <i class="fas fa-bars"></i>
-                    </button>
                 </div>
+                <button class="theme-toggle" id="themeToggle">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button class="menu-toggle" id="menuToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
         </header>
 
         <!-- Main Container -->
@@ -373,6 +372,9 @@
 
     <!-- Notification Container -->
     <div id="notificationContainer" class="notification-container"></div>
+
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
