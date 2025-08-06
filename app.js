@@ -806,6 +806,93 @@ function setupEventListeners() {
             sendMessage();
         }
     });
+
+    // User dropdown menu handler
+    let dropdownTimeout;
+    
+    // Click on user menu to toggle dropdown
+    elements.userMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Clear any existing timeout
+        if (dropdownTimeout) {
+            clearTimeout(dropdownTimeout);
+        }
+        
+        // Toggle dropdown
+        const isActive = elements.userDropdown.classList.contains('active');
+        
+        if (!isActive) {
+            elements.userDropdown.classList.add('active');
+            elements.userMenu.classList.add('active');
+            
+            // Small delay to ensure smooth animation
+            setTimeout(() => {
+                elements.userDropdown.style.display = 'block';
+            }, 10);
+        } else {
+            closeUserDropdown();
+        }
+    });
+    
+    // Prevent dropdown from closing when clicking inside it
+    elements.userDropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!elements.userMenu.contains(e.target)) {
+            closeUserDropdown();
+        }
+    });
+    
+    // Close dropdown on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeUserDropdown();
+        }
+    });
+    
+    // Function to close dropdown with animation
+    function closeUserDropdown() {
+        elements.userDropdown.classList.remove('active');
+        elements.userMenu.classList.remove('active');
+        
+        // Wait for animation to complete before hiding
+        dropdownTimeout = setTimeout(() => {
+            elements.userDropdown.style.display = 'none';
+        }, 300);
+    }
+    
+    // Profile button click
+    elements.profileBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeUserDropdown();
+        showProfileModal();
+    });
+    
+    // Admin button click (if visible)
+    if (elements.adminBtn) {
+        elements.adminBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeUserDropdown();
+            if (state.isAdmin) {
+                showAdminDashboard();
+            }
+        });
+    }
+    
+    // Logout button click
+    elements.logoutBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        closeUserDropdown();
+        
+        if (confirm('Are you sure you want to logout?')) {
+            await supabase.auth.signOut();
+            showNotification('Logged out successfully', 'info');
+        }
+    });
     
     // Auto-resize textarea
     elements.messageInput.addEventListener('input', function() {
