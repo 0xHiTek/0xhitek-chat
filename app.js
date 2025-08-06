@@ -1141,14 +1141,30 @@ function setupEventListeners() {
         }
     });
     
-    // Send message
-    elements.sendBtn.addEventListener('click', sendMessage);
-    elements.messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // Send message event listeners - FIXED
+    if (elements.sendBtn) {
+        elements.sendBtn.addEventListener('click', async (e) => {
             e.preventDefault();
-            sendMessage();
-        }
+            console.log('Send button clicked');
+            await sendMessage();
+        });
+    }
+    
+    if (elements.messageInput) {
+        elements.messageInput.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                console.log('Enter key pressed');
+                await sendMessage();
+            }
+        });
+    
+    // Auto-resize textarea
+    elements.messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 150) + 'px';
     });
+}
     
     // Auto-resize textarea
     elements.messageInput.addEventListener('input', function() {
