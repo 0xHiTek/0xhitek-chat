@@ -435,6 +435,7 @@ async function loadUserSettings() {
 }
 
 // Load Available Models - COMPLETELY FIXED
+// Load Available Models - FIXED TO SHOW ALL MODELS
 async function loadAvailableModels() {
     if (!state.profile?.openrouter_api_key) {
         console.log('No API key found');
@@ -442,95 +443,123 @@ async function loadAvailableModels() {
         return;
     }
     
-    console.log('Loading models with API key...');
+    console.log('Loading all OpenRouter models...');
+    showNotification('Loading models...', 'info');
     
     try {
-        // Test the API key first with a simple request
-        const testResponse = await fetch('https://openrouter.ai/api/v1/auth/key', {
+        // First, verify the API key is valid
+        const authResponse = await fetch('https://openrouter.ai/api/v1/auth/key', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
                 'HTTP-Referer': window.location.href,
-                'X-Title': '0xHiTek Chat',
-                'Content-Type': 'application/json'
+                'X-Title': '0xHiTek Chat'
             }
         });
         
-        if (!testResponse.ok) {
-            console.error('Invalid API key');
+        if (!authResponse.ok) {
+            console.error('Invalid API key:', authResponse.status);
             showNotification('Invalid OpenRouter API key. Please check and try again.', 'error');
             useDefaultModels();
             return;
         }
         
-        // Now fetch models
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
+        const authData = await authResponse.json();
+        console.log('API Key validated:', authData);
+        
+        // Now fetch ALL available models
+        const modelsResponse = await fetch('https://openrouter.ai/api/v1/models', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
                 'HTTP-Referer': window.location.href,
-                'X-Title': '0xHiTek Chat',
-                'Content-Type': 'application/json'
+                'X-Title': '0xHiTek Chat'
             }
         });
         
-        if (response.ok) {
-            const data = await response.json();
-            console.log('Models loaded:', data);
+        if (!modelsResponse.ok) {
+            console.error('Failed to fetch models:', modelsResponse.status);
+            showNotification('Failed to load models. Using defaults.', 'warning');
+            useDefaultModels();
+            return;
+        }
+        
+        const data = await modelsResponse.json();
+        console.log('Raw models data:', data);
+        
+        // Process ALL models without filtering them out
+        let allModels = data.data || [];
+        console.log(`Total models available: ${allModels.length}`);
+        
+        // Sort models to show important ones first, but keep ALL models
+        state.availableModels = allModels.sort((a, b) => {
+            // Priority order for popular models
+            const topModels = [
+                'anthropic/claude-3-opus',
+                'anthropic/claude-3.5-sonnet',
+                'anthropic/claude-3-sonnet',
+                'openai/gpt-4-turbo',
+                'openai/gpt-4-turbo-preview', 
+                'openai/gpt-4',
+                'openai/gpt-3.5-turbo',
+                'google/gemini-pro-1.5',
+                'google/gemini-pro',
+                'meta-llama/llama-3-70b-instruct',
+                'mistralai/mixtral-8x7b-instruct'
+            ];
             
-            // Filter and sort models
-            state.availableModels = (data.data || [])
-                .filter(model => model.id && model.name)
-                .sort((a, b) => {
-                    // Prioritize popular models
-                    const priority = ['gpt-4', 'gpt-3.5', 'claude', 'gemini'];
-                    const aPriority = priority.findIndex(p => a.id.toLowerCase().includes(p));
-                    const bPriority = priority.findIndex(p => b.id.toLowerCase().includes(p));
-                    
-                    if (aPriority !== -1 && bPriority !== -1) {
-                        return aPriority - bPriority;
-                    }
-                    if (aPriority !== -1) return -1;
-                    if (bPriority !== -1) return 1;
-                    
-                    return a.name.localeCompare(b.name);
-                });
+            // Check if models are in priority list
+            const aIndex = topModels.findIndex(m => a.id.includes(m));
+            const bIndex = topModels.findIndex(m => b.id.includes(m));
             
-            if (state.availableModels.length > 0) {
-                populateModelSelector();
-                showNotification(`Loaded ${state.availableModels.length} models`, 'success');
-            } else {
-                useDefaultModels();
+            // If both are priority models, sort by priority
+            if (aIndex !== -1 && bIndex !== -1) {
+                return aIndex - bIndex;
             }
+            
+            // Priority models come first
+            if (aIndex !== -1) return -1;
+            if (bIndex !== -1) return 1;
+            
+            // Then sort by context length (larger is often better)
+            const aContext = a.context_length || 0;
+            const bContext = b.context_length || 0;
+            if (aContext !== bContext) {
+                return bContext - aContext;
+            }
+            
+            // Finally sort alphabetically by name
+            const aName = a.name || a.id;
+            const bName = b.name || b.id;
+            return aName.localeCompare(bName);
+        });
+        
+        console.log('Models after sorting:', state.availableModels.length);
+        
+        if (state.availableModels.length > 0) {
+            populateModelSelector();
+            showNotification(`Loaded ${state.availableModels.length} models successfully!`, 'success');
+            
+            // Log some popular models for debugging
+            console.log('Sample of available models:');
+            state.availableModels.slice(0, 10).forEach(model => {
+                console.log(`- ${model.id}: ${model.name} (Context: ${model.context_length})`);
+            });
         } else {
-            console.error('Failed to load models:', response.status);
+            console.warn('No models returned from API');
             useDefaultModels();
         }
+        
     } catch (error) {
         console.error('Error loading models:', error);
-        showNotification('Could not load models. Using defaults.', 'warning');
+        showNotification('Error loading models. Using defaults.', 'warning');
         useDefaultModels();
     }
 }
 
-// Use default models as fallback
-function useDefaultModels() {
-    console.log('Using default models');
-    state.availableModels = [
-        { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-        { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo' },
-        { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
-        { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet' },
-        { id: 'google/gemini-pro', name: 'Gemini Pro' },
-        { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B' },
-        { id: 'mistralai/mistral-medium', name: 'Mistral Medium' }
-    ];
-    populateModelSelector();
-}
-
-// Populate Model Selector
+// Enhanced model selector population
 function populateModelSelector() {
-    console.log('Populating model selector with', state.availableModels.length, 'models');
+    console.log(`Populating selector with ${state.availableModels.length} models`);
     
     elements.modelSelector.innerHTML = '';
     
@@ -542,24 +571,311 @@ function populateModelSelector() {
         return;
     }
     
+    // Group models by provider for better organization
+    const modelsByProvider = {};
+    
     state.availableModels.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model.id;
-        option.textContent = model.name || model.id;
+        // Extract provider from model ID (e.g., "openai/gpt-4" -> "openai")
+        const provider = model.id.split('/')[0] || 'other';
         
-        // Set selected model
-        if (model.id === (state.settings?.preferred_model || APP_CONFIG.defaultModel)) {
-            option.selected = true;
+        if (!modelsByProvider[provider]) {
+            modelsByProvider[provider] = [];
         }
         
-        elements.modelSelector.appendChild(option);
+        modelsByProvider[provider].push(model);
     });
+    
+    // Define provider display order
+    const providerOrder = [
+        'anthropic',
+        'openai', 
+        'google',
+        'meta-llama',
+        'mistralai',
+        'cohere',
+        'perplexity',
+        'deepseek',
+        'qwen'
+    ];
+    
+    // Add models to selector grouped by provider
+    let addedModels = 0;
+    
+    // First add prioritized providers
+    providerOrder.forEach(provider => {
+        if (modelsByProvider[provider]) {
+            addOptGroup(provider, modelsByProvider[provider]);
+            delete modelsByProvider[provider];
+        }
+    });
+    
+    // Then add any remaining providers
+    Object.keys(modelsByProvider).sort().forEach(provider => {
+        addOptGroup(provider, modelsByProvider[provider]);
+    });
+    
+    function addOptGroup(provider, models) {
+        // Create optgroup for better organization
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = provider.charAt(0).toUpperCase() + provider.slice(1);
+        
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            
+            // Create informative label
+            let label = model.name || model.id;
+            
+            // Add context length if available
+            if (model.context_length) {
+                const contextK = Math.round(model.context_length / 1000);
+                label += ` (${contextK}k)`;
+            }
+            
+            // Add pricing if available
+            if (model.pricing) {
+                const inputPrice = model.pricing.prompt ? 
+                    (model.pricing.prompt * 1000000).toFixed(2) : null;
+                const outputPrice = model.pricing.completion ? 
+                    (model.pricing.completion * 1000000).toFixed(2) : null;
+                
+                if (inputPrice && outputPrice) {
+                    label += ` [$${inputPrice}/$${outputPrice}]`;
+                }
+            }
+            
+            option.textContent = label;
+            
+            // Mark if this is the selected model
+            if (model.id === (state.settings?.preferred_model || APP_CONFIG.defaultModel)) {
+                option.selected = true;
+            }
+            
+            optgroup.appendChild(option);
+            addedModels++;
+        });
+        
+        elements.modelSelector.appendChild(optgroup);
+    }
+    
+    console.log(`Added ${addedModels} models to selector`);
     
     // If no model was selected, select the first one
     if (!elements.modelSelector.value && state.availableModels.length > 0) {
         elements.modelSelector.value = state.availableModels[0].id;
     }
+    
+    // Update the model search to work with all models
+    updateModelSearch();
 }
+
+// Enhanced model search functionality
+function updateModelSearch() {
+    if (!elements.modelSearch) return;
+    
+    // Store original HTML for restoration
+    const originalHTML = elements.modelSelector.innerHTML;
+    
+    elements.modelSearch.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase().trim();
+        
+        if (!searchTerm) {
+            // Restore original if search is empty
+            elements.modelSelector.innerHTML = originalHTML;
+            return;
+        }
+        
+        // Clear and rebuild with filtered models
+        elements.modelSelector.innerHTML = '';
+        
+        let matchedModels = state.availableModels.filter(model => {
+            const id = model.id.toLowerCase();
+            const name = (model.name || '').toLowerCase();
+            return id.includes(searchTerm) || name.includes(searchTerm);
+        });
+        
+        if (matchedModels.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = `No models matching "${searchTerm}"`;
+            elements.modelSelector.appendChild(option);
+        } else {
+            matchedModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                
+                let label = model.name || model.id;
+                if (model.context_length) {
+                    const contextK = Math.round(model.context_length / 1000);
+                    label += ` (${contextK}k context)`;
+                }
+                
+                option.textContent = label;
+                elements.modelSelector.appendChild(option);
+            });
+            
+            // Select first match
+            elements.modelSelector.value = matchedModels[0].id;
+        }
+        
+        console.log(`Found ${matchedModels.length} models matching "${searchTerm}"`);
+    });
+}
+
+// Enhanced default models fallback with more options
+function useDefaultModels() {
+    console.log('Using extended default models list');
+    
+    state.availableModels = [
+        // Anthropic Claude Models
+        { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus (200k)', context_length: 200000 },
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (200k)', context_length: 200000 },
+        { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet (200k)', context_length: 200000 },
+        { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku (200k)', context_length: 200000 },
+        { id: 'anthropic/claude-2.1', name: 'Claude 2.1 (200k)', context_length: 200000 },
+        { id: 'anthropic/claude-2', name: 'Claude 2 (100k)', context_length: 100000 },
+        { id: 'anthropic/claude-instant-1', name: 'Claude Instant 1.2', context_length: 100000 },
+        
+        // OpenAI GPT Models
+        { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo (128k)', context_length: 128000 },
+        { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo Preview (128k)', context_length: 128000 },
+        { id: 'openai/gpt-4', name: 'GPT-4 (8k)', context_length: 8192 },
+        { id: 'openai/gpt-4-32k', name: 'GPT-4 32K', context_length: 32768 },
+        { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo (16k)', context_length: 16385 },
+        { id: 'openai/gpt-3.5-turbo-16k', name: 'GPT-3.5 Turbo 16K', context_length: 16385 },
+        
+        // Google Models
+        { id: 'google/gemini-pro', name: 'Gemini Pro', context_length: 32760 },
+        { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5', context_length: 1000000 },
+        { id: 'google/gemini-pro-vision', name: 'Gemini Pro Vision', context_length: 32760 },
+        { id: 'google/palm-2-codechat-bison', name: 'PaLM 2 Code Chat', context_length: 8192 },
+        { id: 'google/palm-2-chat-bison', name: 'PaLM 2 Chat', context_length: 8192 },
+        
+        // Meta Llama Models
+        { id: 'meta-llama/llama-3-70b-instruct', name: 'Llama 3 70B Instruct', context_length: 8192 },
+        { id: 'meta-llama/llama-3-8b-instruct', name: 'Llama 3 8B Instruct', context_length: 8192 },
+        { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B Chat', context_length: 4096 },
+        { id: 'meta-llama/llama-2-13b-chat', name: 'Llama 2 13B Chat', context_length: 4096 },
+        { id: 'meta-llama/codellama-70b-instruct', name: 'Code Llama 70B', context_length: 4096 },
+        
+        // Mistral Models
+        { id: 'mistralai/mixtral-8x7b-instruct', name: 'Mixtral 8x7B Instruct', context_length: 32768 },
+        { id: 'mistralai/mixtral-8x22b-instruct', name: 'Mixtral 8x22B Instruct', context_length: 65536 },
+        { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B Instruct', context_length: 8192 },
+        { id: 'mistralai/mistral-medium', name: 'Mistral Medium', context_length: 32768 },
+        { id: 'mistralai/mistral-large', name: 'Mistral Large', context_length: 32768 },
+        
+        // Cohere Models
+        { id: 'cohere/command-r-plus', name: 'Command R Plus', context_length: 128000 },
+        { id: 'cohere/command-r', name: 'Command R', context_length: 128000 },
+        { id: 'cohere/command', name: 'Command', context_length: 4096 },
+        
+        // Perplexity Models
+        { id: 'perplexity/llama-3-sonar-large-32k-online', name: 'Sonar Large Online', context_length: 32768 },
+        { id: 'perplexity/llama-3-sonar-large-32k-chat', name: 'Sonar Large Chat', context_length: 32768 },
+        { id: 'perplexity/llama-3-sonar-small-32k-online', name: 'Sonar Small Online', context_length: 32768 },
+        
+        // Other Popular Models
+        { id: 'databricks/dbrx-instruct', name: 'DBRX Instruct', context_length: 32768 },
+        { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', context_length: 32768 },
+        { id: 'qwen/qwen-72b-chat', name: 'Qwen 72B Chat', context_length: 32768 },
+        { id: 'nous/nous-hermes-2-mixtral-8x7b', name: 'Nous Hermes 2 Mixtral', context_length: 32768 }
+    ];
+    
+    populateModelSelector();
+    showNotification('Using offline model list. Add API key to see all available models.', 'info');
+}
+
+// Add this function to manually refresh models
+async function refreshModels() {
+    console.log('Manually refreshing models...');
+    showNotification('Refreshing model list...', 'info');
+    await loadAvailableModels();
+}
+
+// Add a refresh button to the model selector bar (add this to your HTML)
+function addModelRefreshButton() {
+    const modelBar = document.querySelector('.model-selector-bar');
+    if (modelBar && !document.getElementById('refreshModelsBtn')) {
+        const refreshBtn = document.createElement('button');
+        refreshBtn.id = 'refreshModelsBtn';
+        refreshBtn.className = 'refresh-models-btn';
+        refreshBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+        refreshBtn.title = 'Refresh model list';
+        refreshBtn.onclick = refreshModels;
+        
+        // Add CSS for the button
+        refreshBtn.style.cssText = `
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        `;
+        
+        modelBar.appendChild(refreshBtn);
+    }
+}
+
+// Debug function to check what's happening
+async function debugModelLoading() {
+    console.group('🔍 Model Loading Debug');
+    
+    console.log('1. API Key exists:', !!state.profile?.openrouter_api_key);
+    if (state.profile?.openrouter_api_key) {
+        console.log('   Key prefix:', state.profile.openrouter_api_key.substring(0, 10) + '...');
+    }
+    
+    if (state.profile?.openrouter_api_key) {
+        try {
+            // Test auth
+            const authRes = await fetch('https://openrouter.ai/api/v1/auth/key', {
+                headers: {
+                    'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': '0xHiTek Chat'
+                }
+            });
+            
+            const authData = await authRes.json();
+            console.log('2. Auth response:', authData);
+            
+            // Test models endpoint
+            const modelsRes = await fetch('https://openrouter.ai/api/v1/models', {
+                headers: {
+                    'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': '0xHiTek Chat'
+                }
+            });
+            
+            const modelsData = await modelsRes.json();
+            console.log('3. Models response:', {
+                status: modelsRes.status,
+                modelCount: modelsData.data?.length || 0,
+                sampleModels: modelsData.data?.slice(0, 5).map(m => m.id)
+            });
+            
+        } catch (error) {
+            console.error('Debug error:', error);
+        }
+    }
+    
+    console.log('4. Current loaded models:', state.availableModels.length);
+    console.log('5. Model selector options:', elements.modelSelector.options.length);
+    
+    console.groupEnd();
+}
+
+// Call this after DOM loads to add refresh button
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(addModelRefreshButton, 1000);
+});
 
 // Save Profile - COMPLETELY FIXED
 async function saveProfile() {
