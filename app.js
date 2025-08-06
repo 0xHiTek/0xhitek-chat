@@ -93,6 +93,541 @@ const elements = {
     notificationContainer: document.getElementById('notificationContainer')
 };
 
+// SESSION MANAGEMENT AND IDLE RECOVERY SYSTEM
+const SessionManager = {
+    idleTimeout: null,
+    lastActivity: Date.now(),
+    idleThreshold: 5 * 60 * 1000, // 5 minutes
+    sessionCheckInterval: null,
+    isRefreshing: false,
+    
+    // Initialize session management
+    init() {
+        console.log('Initializing session manager...');
+        
+        // Track user activity
+        this.trackActivity();
+        
+        // Start session checker
+        this.startSessionChecker();
+        
+        // Listen for visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                console.log('Page became visible, checking session...');
+                this.checkAndRefreshSession();
+            }
+        });
+        
+        // Listen for online/offline
+        window.addEventListener('online', () => {
+            console.log('Connection restored');
+            showNotification('Connection restored', 'success');
+            this.checkAndRefreshSession();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('Connection lost');
+            showNotification('Connection lost. Messages may not send.', 'warning');
+        });
+        
+        // Listen for focus
+        window.addEventListener('focus', () => {
+            console.log('Window focused, checking session...');
+            this.checkAndRefreshSession();
+        });
+    },
+    
+    // Track user activity
+    trackActivity() {
+        const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+        
+        events.forEach(event => {
+            document.addEventListener(event, () => {
+                this.lastActivity = Date.now();
+            });
+        });
+    },
+    
+    // Start periodic session checker
+    startSessionChecker() {
+        // Check every 30 seconds
+        this.sessionCheckInterval = setInterval(() => {
+            const idleTime = Date.now() - this.lastActivity;
+            
+            if (idleTime > this.idleThreshold) {
+                console.log('User idle for', Math.round(idleTime / 1000), 'seconds');
+            }
+            
+            // Check session every 30 seconds
+            this.checkSessionHealth();
+        }, 30000);
+    },
+    
+    // Check session health
+    async checkSessionHealth() {
+        try {
+            const { data: { session }, error } = await supabase.auth.getSession();
+            
+            if (error || !session) {
+                console.warn('Session check failed:', error);
+                await this.refreshSession();
+                return false;
+            }
+            
+            // Check if session is about to expire (within 5 minutes)
+            const expiresAt = new Date(session.expires_at * 1000);
+            const now = new Date();
+            const timeUntilExpiry = expiresAt - now;
+            
+            if (timeUntilExpiry < 5 * 60 * 1000) {
+                console.log('Session expiring soon, refreshing...');
+                await this.refreshSession();
+            }
+            
+            return true;
+        } catch (error) {
+            console.error('Session health check error:', error);
+            return false;
+        }
+    },
+    
+    // Check and refresh session if needed
+    async checkAndRefreshSession() {
+        if (this.isRefreshing) {
+            console.log('Already refreshing session...');
+            return;
+        }
+        
+        console.log('Checking and refreshing session...');
+        this.isRefreshing = true;
+        
+        try {
+            // Get current session
+            const { data: { session }, error } = await supabase.auth.getSession();
+            
+            if (error || !session) {
+                console.error('No valid session, attempting to refresh...');
+                await this.refreshSession();
+            } else {
+                console.log('Session is valid');
+                
+                // Ensure profile is loaded
+                if (!state.profile) {
+                    await loadUserProfile();
+                }
+                
+                // Ensure settings are loaded
+                if (!state.settings) {
+                    await loadUserSettings();
+                }
+            }
+        } catch (error) {
+            console.error('Session check error:', error);
+            showNotification('Session error. Please refresh the page.', 'error');
+        } finally {
+            this.isRefreshing = false;
+        }
+    },
+    
+    // Refresh session
+    async refreshSession() {
+        console.log('Refreshing session...');
+        
+        try {
+            const { data: { session }, error } = await supabase.auth.refreshSession();
+            
+            if (error) {
+                console.error('Session refresh failed:', error);
+                
+                // If refresh fails, try to re-authenticate
+                const { data: { user } } = await supabase.auth.getUser();
+                
+                if (!user) {
+                    showNotification('Session expired. Please login again.', 'error');
+                    // Redirect to login
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 2000);
+                    return false;
+                }
+            }
+            
+            if (session) {
+                console.log('Session refreshed successfully');
+                state.user = session.user;
+                
+                // Reload profile and settings
+                await loadUserProfile();
+                await loadUserSettings();
+                
+                return true;
+            }
+        } catch (error) {
+            console.error('Session refresh error:', error);
+            return false;
+        }
+    },
+    
+    // Clean up
+    destroy() {
+        if (this.sessionCheckInterval) {
+            clearInterval(this.sessionCheckInterval);
+        }
+        if (this.idleTimeout) {
+            clearTimeout(this.idleTimeout);
+        }
+    }
+};
+
+// ENHANCED SEND MESSAGE WITH IDLE RECOVERY
+async function sendMessage() {
+    console.log('=== START SEND MESSAGE (WITH RECOVERY) ===');
+    
+    const message = elements.messageInput.value.trim();
+    
+    if (!message) {
+        console.log('Message is empty');
+        return;
+    }
+    
+    // Clear loading state from any previous stuck state
+    window.clearStuckState();
+    
+    // Check session before sending
+    console.log('Checking session before sending...');
+    const sessionValid = await SessionManager.checkSessionHealth();
+    
+    if (!sessionValid) {
+        console.log('Session invalid, refreshing...');
+        await SessionManager.refreshSession();
+    }
+    
+    // Ensure we have profile and API key
+    if (!state.profile) {
+        console.log('Profile missing, reloading...');
+        await loadUserProfile();
+    }
+    
+    if (!state.profile?.openrouter_api_key) {
+        showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
+        return;
+    }
+    
+    console.log('Message to send:', message);
+    
+    // Clear input and disable send button
+    elements.messageInput.value = '';
+    elements.messageInput.style.height = 'auto';
+    elements.sendBtn.disabled = true;
+    
+    // Set up timeout protection
+    let timeoutId;
+    const TIMEOUT_DURATION = 30000; // 30 seconds
+    
+    // Show loading
+    showLoading(true);
+    
+    try {
+        // Set timeout to auto-clear loading
+        timeoutId = setTimeout(() => {
+            console.error('Request timeout - clearing loading state');
+            window.clearStuckState();
+            showNotification('Request timed out. Please try again.', 'error');
+        }, TIMEOUT_DURATION);
+        
+        // Create new chat if needed
+        if (!state.currentChatId) {
+            console.log('Creating new chat...');
+            
+            // Double-check session before database operation
+            await SessionManager.checkSessionHealth();
+            
+            const { data: chat, error } = await supabase
+                .from('chats')
+                .insert({
+                    user_id: state.user.id,
+                    title: 'New Chat',
+                    model: elements.modelSelector.value || 'openai/gpt-3.5-turbo'
+                })
+                .select()
+                .single();
+            
+            if (error) {
+                console.error('Chat creation error:', error);
+                
+                // If it's an auth error, refresh session
+                if (error.message.includes('JWT') || error.message.includes('auth')) {
+                    await SessionManager.refreshSession();
+                    // Retry once
+                    const { data: retryChat, error: retryError } = await supabase
+                        .from('chats')
+                        .insert({
+                            user_id: state.user.id,
+                            title: 'New Chat',
+                            model: elements.modelSelector.value || 'openai/gpt-3.5-turbo'
+                        })
+                        .select()
+                        .single();
+                    
+                    if (retryError) {
+                        throw new Error('Failed to create chat after retry: ' + retryError.message);
+                    }
+                    
+                    chat = retryChat;
+                } else {
+                    throw new Error('Failed to create chat: ' + error.message);
+                }
+            }
+            
+            if (chat) {
+                state.currentChatId = chat.id;
+                state.messages = [];
+                state.sessionTokens = 0;
+                elements.tokenCount.textContent = '0';
+                
+                // Remove welcome message
+                const welcomeMsg = document.querySelector('.welcome-message');
+                if (welcomeMsg) welcomeMsg.remove();
+                
+                console.log('Chat created:', chat.id);
+            }
+        }
+        
+        // Add user message to UI
+        addMessageToUI('user', message);
+        
+        // Save user message with retry logic
+        let msgSaved = false;
+        let retries = 0;
+        
+        while (!msgSaved && retries < 3) {
+            try {
+                await supabase
+                    .from('messages')
+                    .insert({
+                        chat_id: state.currentChatId,
+                        user_id: state.user.id,
+                        role: 'user',
+                        content: message
+                    });
+                msgSaved = true;
+            } catch (error) {
+                retries++;
+                console.error(`Message save attempt ${retries} failed:`, error);
+                
+                if (retries < 3) {
+                    await SessionManager.refreshSession();
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                }
+            }
+        }
+        
+        // Prepare API messages
+        const apiMessages = [
+            { role: 'system', content: 'You are a helpful AI assistant.' }
+        ];
+        
+        if (state.messages && state.messages.length > 0) {
+            state.messages.slice(-10).forEach(msg => {
+                apiMessages.push({
+                    role: msg.role,
+                    content: msg.content
+                });
+            });
+        }
+        
+        apiMessages.push({
+            role: 'user',
+            content: message
+        });
+        
+        // Make API call with retry logic
+        let response;
+        let apiRetries = 0;
+        
+        while (apiRetries < 3) {
+            try {
+                console.log(`API attempt ${apiRetries + 1}...`);
+                
+                response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': window.location.origin || 'http://localhost:3000',
+                        'X-Title': '0xHiTek Chat'
+                    },
+                    body: JSON.stringify({
+                        model: elements.modelSelector.value || 'openai/gpt-3.5-turbo',
+                        messages: apiMessages,
+                        max_tokens: parseInt(elements.maxTokens?.value || 2000),
+                        temperature: parseFloat(elements.temperature?.value || 0.7),
+                        stream: false
+                    })
+                });
+                
+                if (response.ok) {
+                    break; // Success, exit retry loop
+                }
+                
+                apiRetries++;
+                
+                if (apiRetries < 3) {
+                    console.log('API call failed, retrying...');
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+                }
+            } catch (error) {
+                apiRetries++;
+                console.error(`API attempt ${apiRetries} error:`, error);
+                
+                if (apiRetries >= 3) {
+                    throw error;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+        
+        const data = await response.json();
+        console.log('API Response:', data);
+        
+        if (data.error) {
+            throw new Error(data.error.message || data.error);
+        }
+        
+        if (!data.choices || data.choices.length === 0) {
+            throw new Error('No response from AI');
+        }
+        
+        const assistantMessage = data.choices[0].message?.content || data.choices[0].text;
+        
+        if (!assistantMessage) {
+            throw new Error('Empty response from AI');
+        }
+        
+        // Add AI response to UI
+        addMessageToUI('assistant', assistantMessage);
+        
+        // Update state
+        state.messages.push(
+            { role: 'user', content: message },
+            { role: 'assistant', content: assistantMessage }
+        );
+        
+        // Save assistant message (don't wait)
+        supabase
+            .from('messages')
+            .insert({
+                chat_id: state.currentChatId,
+                user_id: state.user.id,
+                role: 'assistant',
+                content: assistantMessage
+            })
+            .catch(err => console.error('Error saving assistant message:', err));
+        
+        console.log('✅ Message sent successfully');
+        
+    } catch (error) {
+        console.error('❌ Send message error:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        
+        // Remove user message on error
+        const messages = elements.messagesContainer.querySelectorAll('.message');
+        const lastMessage = messages[messages.length - 1];
+        if (lastMessage && lastMessage.classList.contains('user')) {
+            lastMessage.remove();
+        }
+    } finally {
+        // Clear timeout
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        
+        // Always clear loading state
+        window.clearStuckState();
+        
+        console.log('=== END SEND MESSAGE ===');
+    }
+}
+
+// Helper function to clear stuck state
+window.clearStuckState = function() {
+    console.log('Clearing any stuck state...');
+    
+    // Hide loading
+    if (elements.loadingOverlay) {
+        elements.loadingOverlay.classList.remove('active');
+        elements.loadingOverlay.style.display = 'none';
+    }
+    
+    // Re-enable send button
+    if (elements.sendBtn) {
+        elements.sendBtn.disabled = false;
+    }
+    
+    // Re-enable input
+    if (elements.messageInput) {
+        elements.messageInput.disabled = false;
+        elements.messageInput.focus();
+    }
+    
+    // Clear any stuck timeouts
+    const highestTimeoutId = setTimeout(() => {}, 0);
+    for (let i = 0; i < highestTimeoutId; i++) {
+        clearTimeout(i);
+    }
+};
+
+// Initialize session manager when DOM loads
+document.addEventListener('DOMContentLoaded', () => {
+    SessionManager.init();
+    
+    // Add keyboard shortcut to clear stuck state (Ctrl+Shift+C)
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+            window.clearStuckState();
+            showNotification('Cleared stuck state', 'info');
+        }
+    });
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+    SessionManager.destroy();
+});
+
+// Auto-recovery check every 5 seconds when stuck
+let stuckChecker = null;
+function startStuckChecker() {
+    if (stuckChecker) return;
+    
+    stuckChecker = setInterval(() => {
+        const loadingVisible = elements.loadingOverlay?.classList.contains('active');
+        const sendDisabled = elements.sendBtn?.disabled;
+        
+        if (loadingVisible || sendDisabled) {
+            const stuckDuration = Date.now() - (window.lastRequestTime || Date.now());
+            
+            if (stuckDuration > 30000) {
+                console.warn('Detected stuck state for over 30 seconds, auto-clearing...');
+                window.clearStuckState();
+                showNotification('Auto-recovered from stuck state', 'info');
+            }
+        }
+    }, 5000);
+}
+
+// Start stuck checker
+startStuckChecker();
+
+// Track request times
+const originalSendMessage = sendMessage;
+sendMessage = async function() {
+    window.lastRequestTime = Date.now();
+    return originalSendMessage.apply(this, arguments);
+};
+
 // Initialize Application
 async function init() {
     console.log('Initializing application...');
