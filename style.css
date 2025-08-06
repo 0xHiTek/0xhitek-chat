@@ -279,7 +279,7 @@ body::before {
     height: 100vh;
 }
 
-/* User Menu - Fixed Version */
+/* User Menu - FIXED VERSION */
 .user-menu {
     display: flex;
     align-items: center;
@@ -293,6 +293,20 @@ body::before {
 
 .user-menu:hover {
     background: var(--bg-tertiary);
+}
+
+.user-menu::after {
+    content: '\f0d7';
+    font-family: 'Font Awesome 5 Free';
+    font-weight: 900;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+    transition: transform 0.3s;
+}
+
+.user-menu.active::after {
+    transform: rotate(180deg);
 }
 
 .user-avatar {
@@ -328,12 +342,6 @@ body::before {
     transition: opacity 0.3s, transform 0.3s;
 }
 
-/* Remove the hover-based display */
-/* .user-menu:hover .user-dropdown {
-    display: block;
-} */
-
-/* Add active state for dropdown */
 .user-dropdown.active {
     display: block;
     opacity: 1;
@@ -361,21 +369,6 @@ body::before {
 
 .user-dropdown a:last-child {
     border-radius: 0 0 8px 8px;
-}
-
-/* Add a small arrow indicator */
-.user-menu::after {
-    content: '\f0d7';
-    font-family: 'Font Awesome 5 Free';
-    font-weight: 900;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    margin-left: 0.25rem;
-    transition: transform 0.3s;
-}
-
-.user-menu.active::after {
-    transform: rotate(180deg);
 }
 
 /* Profile Modal Styles */
@@ -574,7 +567,7 @@ body::before {
     position: fixed;
     top: 80px;
     right: 20px;
-    z-index: 9999;
+    z-index: 10000;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -802,6 +795,18 @@ body::before {
     background: var(--bg-tertiary);
     border-color: var(--cyan);
     color: var(--cyan);
+}
+
+/* Sidebar Overlay for Mobile */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 998;
 }
 
 /* Chat Container */
@@ -1350,6 +1355,10 @@ body::before {
     
     .sidebar.active {
         transform: translateX(0);
+    }
+    
+    .sidebar-overlay.active {
+        display: block;
     }
     
     .model-selector-bar {
