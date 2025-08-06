@@ -28,6 +28,8 @@ const elements = {
     forgotPassword: document.getElementById('forgotPassword'),
     
     // User elements
+    userMenu: document.getElementById('userMenu'),
+    userDropdown: document.getElementById('userDropdown'),
     userAvatar: document.getElementById('userAvatar'),
     userName: document.getElementById('userName'),
     logoutBtn: document.getElementById('logoutBtn'),
@@ -43,16 +45,13 @@ const elements = {
     
     // Sidebar elements
     sidebar: document.getElementById('sidebar'),
+    sidebarOverlay: document.getElementById('sidebarOverlay'),
     menuToggle: document.getElementById('menuToggle'),
     themeToggle: document.getElementById('themeToggle'),
     newChatBtn: document.getElementById('newChatBtn'),
     historyList: document.getElementById('historyList'),
     usageCount: document.getElementById('usageCount'),
     usageLimit: document.getElementById('usageLimit'),
-
-    // User menu elements
-    userMenu: document.getElementById('userMenu'),
-    userDropdown: document.getElementById('userDropdown'),
     
     // Settings elements
     settingsBtn: document.getElementById('settingsBtn'),
@@ -97,6 +96,7 @@ const elements = {
 async function init() {
     setupAuthListeners();
     setupEventListeners();
+    loadTheme();
     
     // Check for existing session
     const { data: { session } } = await supabase.auth.getSession();
@@ -139,11 +139,21 @@ function setupAuthListeners() {
     // Login form
     elements.loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        const email = elements.loginEmail.value;
+        const password = elements.loginPassword.value;
+        
+        // Validation
+        if (!validateEmail(email)) {
+            showNotification('Please enter a valid email address', 'error');
+            return;
+        }
+        
         showLoading(true);
         
         const { data, error } = await supabase.auth.signInWithPassword({
-            email: elements.loginEmail.value,
-            password: elements.loginPassword.value
+            email: email,
+            password: password
         });
         
         showLoading(false);
@@ -158,15 +168,36 @@ function setupAuthListeners() {
     // Signup form
     elements.signupForm.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        const name = elements.signupName.value;
+        const email = elements.signupEmail.value;
+        const password = elements.signupPassword.value;
+        
+        // Validation
+        if (!name || name.trim().length < 2) {
+            showNotification('Name must be at least 2 characters', 'error');
+            return;
+        }
+        
+        if (!validateEmail(email)) {
+            showNotification('Please enter a valid email address', 'error');
+            return;
+        }
+        
+        if (password.length < 6) {
+            showNotification('Password must be at least 6 characters', 'error');
+            return;
+        }
+        
         showLoading(true);
         
         const { data, error } = await supabase.auth.signUp({
-            email: elements.signupEmail.value,
-            password: elements.signupPassword.value,
+            email: email,
+            password: password,
             options: {
                 data: {
-                    full_name: elements.signupName.value,
-                    avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(elements.signupName.value)}&background=00ff88&color=0a0e1a`
+                    full_name: name,
+                    avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=00ff88&color=0a0e1a`
                 }
             }
         });
@@ -214,6 +245,11 @@ function setupAuthListeners() {
         const email = prompt('Enter your email address:');
         if (!email) return;
         
+        if (!validateEmail(email)) {
+            showNotification('Please enter a valid email address', 'error');
+            return;
+        }
+        
         showLoading(true);
         
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -228,12 +264,249 @@ function setupAuthListeners() {
             showNotification('Password reset email sent!', 'success');
         }
     });
+}
+
+// Setup Event Listeners
+function setupEventListeners() {
+    // User dropdown menu - FIXED
+    let isDropdownOpen = false;
+    let dropdownTimeout;
     
-    // Logout
+    elements.userMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        if (dropdownTimeout) {
+            clearTimeout(dropdownTimeout);
+        }
+        
+        isDropdownOpen = !isDropdownOpen;
+        
+        if (isDropdownOpen) {
+            elements.userDropdown.style.display = 'block';
+            setTimeout(() => {
+                elements.userDropdown.classList.add('active');
+                elements.userMenu.classList.add('active');
+            }, 10);
+        } else {
+            closeUserDropdown();
+        }
+    });
+    
+    // Prevent dropdown from closing when clicking inside
+    elements.userDropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (isDropdownOpen && !elements.userMenu.contains(e.target)) {
+            closeUserDropdown();
+        }
+    });
+    
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isDropdownOpen) {
+            closeUserDropdown();
+        }
+    });
+    
+    function closeUserDropdown() {
+        elements.userDropdown.classList.remove('active');
+        elements.userMenu.classList.remove('active');
+        
+        dropdownTimeout = setTimeout(() => {
+            elements.userDropdown.style.display = 'none';
+        }, 300);
+        
+        isDropdownOpen = false;
+    }
+    
+    // Profile button
+    elements.profileBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeUserDropdown();
+        showProfileModal();
+    });
+    
+    // Admin button
+    if (elements.adminBtn) {
+        elements.adminBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeUserDropdown();
+            if (state.isAdmin) {
+                showAdminDashboard();
+            }
+        });
+    }
+    
+    // Logout button
     elements.logoutBtn.addEventListener('click', async (e) => {
         e.preventDefault();
-        await supabase.auth.signOut();
-        showNotification('Logged out successfully', 'info');
+        closeUserDropdown();
+        
+        if (confirm('Are you sure you want to logout?')) {
+            await supabase.auth.signOut();
+            showNotification('Logged out successfully', 'info');
+        }
+    });
+    
+    // Send message
+    elements.sendBtn.addEventListener('click', sendMessage);
+    elements.messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Auto-resize textarea - FIXED
+    elements.messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+    });
+    
+    // Mobile menu toggle - FIXED
+    elements.menuToggle.addEventListener('click', () => {
+        const isActive = elements.sidebar.classList.contains('active');
+        
+        if (!isActive) {
+            elements.sidebar.classList.add('active');
+            elements.sidebarOverlay.classList.add('active');
+        } else {
+            elements.sidebar.classList.remove('active');
+            elements.sidebarOverlay.classList.remove('active');
+        }
+    });
+    
+    // Sidebar overlay click
+    elements.sidebarOverlay.addEventListener('click', () => {
+        elements.sidebar.classList.remove('active');
+        elements.sidebarOverlay.classList.remove('active');
+    });
+    
+    // Theme toggle - FIXED
+    elements.themeToggle.addEventListener('click', toggleTheme);
+    
+    // New chat
+    elements.newChatBtn.addEventListener('click', startNewChat);
+    
+    // Profile modal
+    elements.closeProfile.addEventListener('click', () => {
+        elements.profileModal.classList.remove('active');
+    });
+    elements.saveProfile.addEventListener('click', saveProfile);
+    
+    // Avatar upload
+    elements.changeAvatar.addEventListener('click', () => {
+        elements.avatarInput.click();
+    });
+    
+    elements.avatarInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            if (file.size > APP_CONFIG.maxFileSize) {
+                showNotification('File size must be less than 5MB', 'error');
+                e.target.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                elements.profileAvatar.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    
+    // Toggle API key visibility - FIXED
+    elements.toggleProfileApiKey.addEventListener('click', () => {
+        const input = elements.profileApiKey;
+        const icon = elements.toggleProfileApiKey.querySelector('i');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fas fa-eye-slash';
+        } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye';
+        }
+    });
+    
+    // Settings
+    elements.settingsBtn.addEventListener('click', () => {
+        elements.settingsModal.classList.add('active');
+    });
+    
+    elements.closeSettings.addEventListener('click', () => {
+        elements.settingsModal.classList.remove('active');
+    });
+    
+    elements.saveSettings.addEventListener('click', saveSettings);
+    
+    // Temperature slider
+    elements.temperature.addEventListener('input', (e) => {
+        elements.tempValue.textContent = e.target.value;
+    });
+    
+    // Admin
+    elements.closeAdmin.addEventListener('click', () => {
+        elements.adminModal.classList.remove('active');
+    });
+    
+    // Admin tabs
+    document.querySelectorAll('.admin-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+            document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`admin${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.add('active');
+        });
+    });
+    
+    // Save system settings
+    elements.saveSystemSettings.addEventListener('click', async () => {
+        const { error } = await supabase
+            .from('admin_settings')
+            .upsert({
+                setting_key: 'default_usage_limit',
+                setting_value: { value: parseInt(elements.defaultUsageLimit.value) }
+            });
+        
+        if (error) {
+            showNotification('Error saving system settings: ' + error.message, 'error');
+        } else {
+            showNotification('System settings saved successfully!', 'success');
+        }
+    });
+    
+    // Export chat
+    elements.exportBtn.addEventListener('click', exportChat);
+    
+    // Model search
+    elements.modelSearch.addEventListener('input', filterModels);
+    
+    // Model selector
+    elements.modelSelector.addEventListener('change', (e) => {
+        if (state.settings) {
+            state.settings.preferred_model = e.target.value;
+        }
+    });
+    
+    // Close modals on background click - FIXED
+    [elements.settingsModal, elements.profileModal, elements.adminModal].forEach(modal => {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+            }
+        });
+        
+        // Prevent modal content from closing modal
+        const modalContent = modal.querySelector('.modal-content');
+        if (modalContent) {
+            modalContent.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+        }
     });
 }
 
@@ -266,6 +539,8 @@ async function loadUserProfile() {
         // Load models if API key exists
         if (profile.openrouter_api_key) {
             await loadAvailableModels();
+        } else {
+            showNotification('Please add your OpenRouter API key in Profile settings to start chatting', 'warning');
         }
     }
 }
@@ -296,7 +571,6 @@ async function loadUserSettings() {
 // Load Available Models
 async function loadAvailableModels() {
     if (!state.profile?.openrouter_api_key) {
-        showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
         return;
     }
     
@@ -319,7 +593,11 @@ async function loadAvailableModels() {
         // Use fallback models
         state.availableModels = [
             { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
-            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' }
+            { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo' },
+            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
+            { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet' },
+            { id: 'google/gemini-pro', name: 'Gemini Pro' },
+            { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B' }
         ];
         populateModelSelector();
     }
@@ -338,6 +616,17 @@ function populateModelSelector() {
         }
         elements.modelSelector.appendChild(option);
     });
+}
+
+// Filter models
+function filterModels() {
+    const searchTerm = elements.modelSearch.value.toLowerCase();
+    const options = elements.modelSelector.options;
+    
+    for (let option of options) {
+        const text = option.textContent.toLowerCase();
+        option.style.display = text.includes(searchTerm) ? '' : 'none';
+    }
 }
 
 // Chat Functions
@@ -372,6 +661,8 @@ function renderChatHistory() {
 
 async function loadChat(chatId) {
     state.currentChatId = chatId;
+    state.sessionTokens = 0;
+    elements.tokenCount.textContent = '0';
     
     // Load messages for this chat
     const { data: messages } = await supabase
@@ -382,6 +673,10 @@ async function loadChat(chatId) {
     
     if (messages) {
         state.messages = messages;
+        
+        // Calculate total tokens
+        state.sessionTokens = messages.reduce((sum, msg) => sum + (msg.tokens || 0), 0);
+        elements.tokenCount.textContent = state.sessionTokens;
         
         // Rebuild chat UI
         elements.messagesContainer.innerHTML = '';
@@ -399,7 +694,7 @@ async function startNewChat() {
         .insert({
             user_id: state.user.id,
             title: 'New Chat',
-            model: elements.modelSelector.value
+            model: elements.modelSelector.value || APP_CONFIG.defaultModel
         })
         .select()
         .single();
@@ -493,7 +788,7 @@ async function sendMessage() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: elements.modelSelector.value,
+                model: elements.modelSelector.value || APP_CONFIG.defaultModel,
                 messages: apiMessages,
                 max_tokens: parseInt(elements.maxTokens.value),
                 temperature: parseFloat(elements.temperature.value)
@@ -501,7 +796,8 @@ async function sendMessage() {
         });
         
         if (!response.ok) {
-            throw new Error(`API Error: ${response.status}`);
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error?.message || `API Error: ${response.status}`);
         }
         
         const data = await response.json();
@@ -527,15 +823,16 @@ async function sendMessage() {
             });
         
         // Update usage count
+        const newUsageCount = state.profile.usage_count + tokensUsed;
         await supabase
             .from('profiles')
             .update({ 
-                usage_count: state.profile.usage_count + tokensUsed 
+                usage_count: newUsageCount 
             })
             .eq('id', state.user.id);
         
-        state.profile.usage_count += tokensUsed;
-        elements.usageCount.textContent = state.profile.usage_count;
+        state.profile.usage_count = newUsageCount;
+        elements.usageCount.textContent = newUsageCount;
         
         // Log usage
         await supabase
@@ -551,7 +848,10 @@ async function sendMessage() {
             const title = message.substring(0, 50);
             await supabase
                 .from('chats')
-                .update({ title })
+                .update({ 
+                    title,
+                    model: elements.modelSelector.value
+                })
                 .eq('id', state.currentChatId);
             
             await loadChatHistory();
@@ -560,7 +860,7 @@ async function sendMessage() {
         // Update state messages
         state.messages.push(
             { role: 'user', content: message },
-            { role: 'assistant', content: assistantMessage }
+            { role: 'assistant', content: assistantMessage, tokens: tokensUsed }
         );
         
         // Play sound if enabled
@@ -668,7 +968,7 @@ async function saveProfile() {
         await loadUserProfile();
         
         // Reload models if API key changed
-        if (updates.openrouter_api_key) {
+        if (updates.openrouter_api_key && updates.openrouter_api_key !== state.profile.openrouter_api_key) {
             await loadAvailableModels();
         }
     }
@@ -762,7 +1062,7 @@ async function showAdminDashboard() {
     }
 }
 
-// Admin helper functions (add to global scope for onclick handlers)
+// Admin helper functions
 window.editUserLimit = async function(userId, currentLimit) {
     const newLimit = prompt(`Enter new usage limit (current: ${currentLimit}):`, currentLimit);
     if (!newLimit) return;
@@ -796,232 +1096,6 @@ window.resetUserUsage = async function(userId) {
     }
 };
 
-// Setup Event Listeners
-function setupEventListeners() {
-    // Send message
-    elements.sendBtn.addEventListener('click', sendMessage);
-    elements.messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
-
-    // User dropdown menu handler
-    let dropdownTimeout;
-    
-    // Click on user menu to toggle dropdown
-    elements.userMenu.addEventListener('click', (e) => {
-        e.stopPropagation();
-        
-        // Clear any existing timeout
-        if (dropdownTimeout) {
-            clearTimeout(dropdownTimeout);
-        }
-        
-        // Toggle dropdown
-        const isActive = elements.userDropdown.classList.contains('active');
-        
-        if (!isActive) {
-            elements.userDropdown.classList.add('active');
-            elements.userMenu.classList.add('active');
-            
-            // Small delay to ensure smooth animation
-            setTimeout(() => {
-                elements.userDropdown.style.display = 'block';
-            }, 10);
-        } else {
-            closeUserDropdown();
-        }
-    });
-    
-    // Prevent dropdown from closing when clicking inside it
-    elements.userDropdown.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-    
-    // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!elements.userMenu.contains(e.target)) {
-            closeUserDropdown();
-        }
-    });
-    
-    // Close dropdown on escape key
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            closeUserDropdown();
-        }
-    });
-    
-    // Function to close dropdown with animation
-    function closeUserDropdown() {
-        elements.userDropdown.classList.remove('active');
-        elements.userMenu.classList.remove('active');
-        
-        // Wait for animation to complete before hiding
-        dropdownTimeout = setTimeout(() => {
-            elements.userDropdown.style.display = 'none';
-        }, 300);
-    }
-    
-    // Profile button click
-    elements.profileBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        closeUserDropdown();
-        showProfileModal();
-    });
-    
-    // Admin button click (if visible)
-    if (elements.adminBtn) {
-        elements.adminBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            closeUserDropdown();
-            if (state.isAdmin) {
-                showAdminDashboard();
-            }
-        });
-    }
-    
-    // Logout button click
-    elements.logoutBtn.addEventListener('click', async (e) => {
-        e.preventDefault();
-        closeUserDropdown();
-        
-        if (confirm('Are you sure you want to logout?')) {
-            await supabase.auth.signOut();
-            showNotification('Logged out successfully', 'info');
-        }
-    });
-    
-    // Auto-resize textarea
-    elements.messageInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = Math.min(this.scrollHeight, 150) + 'px';
-    });
-    
-    // Mobile menu toggle
-    elements.menuToggle.addEventListener('click', () => {
-        elements.sidebar.classList.toggle('active');
-    });
-    
-    // Theme toggle
-    elements.themeToggle.addEventListener('click', toggleTheme);
-    
-    // New chat
-    elements.newChatBtn.addEventListener('click', startNewChat);
-    
-    // Profile
-    elements.profileBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        showProfileModal();
-    });
-    elements.closeProfile.addEventListener('click', () => {
-        elements.profileModal.classList.remove('active');
-    });
-    elements.saveProfile.addEventListener('click', saveProfile);
-    
-    // Avatar upload
-    elements.changeAvatar.addEventListener('click', () => {
-        elements.avatarInput.click();
-    });
-    elements.avatarInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            const file = e.target.files[0];
-            if (file.size > APP_CONFIG.maxFileSize) {
-                showNotification('File size must be less than 5MB', 'error');
-                e.target.value = '';
-                return;
-            }
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                elements.profileAvatar.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-    
-    // Toggle API key visibility
-    elements.toggleProfileApiKey.addEventListener('click', () => {
-        const input = elements.profileApiKey;
-        const icon = elements.toggleProfileApiKey.querySelector('i');
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.className = 'fas fa-eye-slash';
-        } else {
-            input.type = 'password';
-            icon.className = 'fas fa-eye';
-        }
-    });
-    
-    // Settings
-    elements.settingsBtn.addEventListener('click', () => {
-        elements.settingsModal.classList.add('active');
-    });
-    elements.closeSettings.addEventListener('click', () => {
-        elements.settingsModal.classList.remove('active');
-    });
-    elements.saveSettings.addEventListener('click', saveSettings);
-    
-    // Temperature slider
-    elements.temperature.addEventListener('input', (e) => {
-        elements.tempValue.textContent = e.target.value;
-    });
-    
-    // Admin
-    if (elements.adminBtn) {
-        elements.adminBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            showAdminDashboard();
-        });
-    }
-    elements.closeAdmin.addEventListener('click', () => {
-        elements.adminModal.classList.remove('active');
-    });
-    
-    // Admin tabs
-    document.querySelectorAll('.admin-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.dataset.tab;
-            document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
-            tab.classList.add('active');
-            document.getElementById(`admin${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.add('active');
-        });
-    });
-    
-    // Save system settings
-    elements.saveSystemSettings.addEventListener('click', async () => {
-        const { error } = await supabase
-            .from('admin_settings')
-            .upsert({
-                setting_key: 'default_usage_limit',
-                setting_value: { value: parseInt(elements.defaultUsageLimit.value) }
-            });
-        
-        if (error) {
-            showNotification('Error saving system settings: ' + error.message, 'error');
-        } else {
-            showNotification('System settings saved successfully!', 'success');
-        }
-    });
-    
-    // Export chat
-    elements.exportBtn.addEventListener('click', exportChat);
-    
-    // Model search
-    elements.modelSearch.addEventListener('input', filterModels);
-    
-    // Close modals on background click
-    [elements.settingsModal, elements.profileModal, elements.adminModal].forEach(modal => {
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.classList.remove('active');
-            }
-        });
-    });
-}
-
 // Export chat
 async function exportChat() {
     if (!state.currentChatId) {
@@ -1047,18 +1121,7 @@ async function exportChat() {
     showNotification('Chat exported successfully', 'success');
 }
 
-// Filter models
-function filterModels() {
-    const searchTerm = elements.modelSearch.value.toLowerCase();
-    const options = elements.modelSelector.options;
-    
-    for (let option of options) {
-        const text = option.textContent.toLowerCase();
-        option.style.display = text.includes(searchTerm) ? '' : 'none';
-    }
-}
-
-// Theme toggle
+// Theme Functions
 function toggleTheme() {
     const body = document.body;
     const isDark = !body.classList.contains('light-theme');
@@ -1066,9 +1129,11 @@ function toggleTheme() {
     if (isDark) {
         body.classList.add('light-theme');
         elements.themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+        localStorage.setItem('theme', 'light');
     } else {
         body.classList.remove('light-theme');
         elements.themeToggle.innerHTML = '<i class="fas fa-moon"></i>';
+        localStorage.setItem('theme', 'dark');
     }
     
     // Save theme preference
@@ -1078,7 +1143,15 @@ function toggleTheme() {
     }
 }
 
-// Utility functions
+function loadTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-theme');
+        elements.themeToggle.innerHTML = '<i class="fas fa-sun"></i>';
+    }
+}
+
+// Utility Functions
 function showAuth() {
     elements.authContainer.style.display = 'flex';
     elements.appContainer.style.display = 'none';
@@ -1123,6 +1196,11 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+}
+
 function playNotificationSound() {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
@@ -1140,6 +1218,34 @@ function playNotificationSound() {
     oscillator.start(audioContext.currentTime);
     oscillator.stop(audioContext.currentTime + 0.1);
 }
+
+// Session timeout handling
+let lastActivity = Date.now();
+const SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+
+['click', 'keypress', 'scroll', 'mousemove'].forEach(event => {
+    document.addEventListener(event, () => {
+        lastActivity = Date.now();
+    });
+});
+
+setInterval(() => {
+    if (state.user && Date.now() - lastActivity > SESSION_TIMEOUT) {
+        showNotification('Session expired. Please login again.', 'warning');
+        supabase.auth.signOut();
+    }
+}, 60000); // Check every minute
+
+// Error boundary
+window.addEventListener('error', function(e) {
+    console.error('Global error:', e.error);
+    showNotification('An error occurred. Please refresh the page if issues persist.', 'error');
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('Unhandled promise rejection:', e.reason);
+    showNotification('An error occurred. Please try again.', 'error');
+});
 
 // Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', init);
