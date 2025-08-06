@@ -421,6 +421,26 @@ body::before {
     color: var(--yellow);
 }
 
+/* Test API BTN */
+
+.test-api-btn {
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--yellow);
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 1rem;
+}
+
+.test-api-btn:hover {
+    background: var(--yellow);
+    color: var(--bg-primary);
+    transform: scale(1.1);
+}
+
+
 /* Admin Dashboard Styles */
 .modal-large {
     max-width: 900px;
