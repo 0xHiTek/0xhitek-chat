@@ -1358,12 +1358,22 @@ async function startNewChat() {
     }
 }
 
+// FIXED SEND MESSAGE FUNCTION WITH FULL ERROR HANDLING
 async function sendMessage() {
+    console.log('Send button clicked');
+    
     const message = elements.messageInput.value.trim();
-    if (!message || !state.profile?.openrouter_api_key) {
-        if (!state.profile?.openrouter_api_key) {
-            showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
-        }
+    
+    // Check if message is empty
+    if (!message) {
+        console.log('Message is empty');
+        return;
+    }
+    
+    // Check if API key exists
+    if (!state.profile?.openrouter_api_key) {
+        showNotification('Please add your OpenRouter API key in Profile settings', 'warning');
+        console.error('No API key found');
         return;
     }
     
@@ -1373,61 +1383,143 @@ async function sendMessage() {
         return;
     }
     
+    console.log('Sending message:', message);
+    console.log('Using model:', elements.modelSelector.value);
+    console.log('API Key exists:', !!state.profile.openrouter_api_key);
+    
     // Create new chat if needed
     if (!state.currentChatId) {
+        console.log('Creating new chat...');
         await startNewChat();
+        if (!state.currentChatId) {
+            showNotification('Failed to create chat', 'error');
+            return;
+        }
     }
     
     // Disable input while processing
     elements.messageInput.value = '';
     elements.messageInput.style.height = 'auto';
     elements.sendBtn.disabled = true;
+    
+    // Show loading
     showLoading(true);
     
-    // Add user message to UI
-    addMessageToUI('user', message);
-    
-    // Save user message to database
-    await supabase
-        .from('messages')
-        .insert({
-            chat_id: state.currentChatId,
-            user_id: state.user.id,
+    try {
+        // Add user message to UI immediately
+        addMessageToUI('user', message);
+        
+        // Save user message to database
+        console.log('Saving user message to database...');
+        const { error: saveError } = await supabase
+            .from('messages')
+            .insert({
+                chat_id: state.currentChatId,
+                user_id: state.user.id,
+                role: 'user',
+                content: message
+            });
+        
+        if (saveError) {
+            console.error('Error saving message:', saveError);
+        }
+        
+        // Prepare messages for API
+        const apiMessages = [];
+        
+        // Add system message if it's the first message
+        if (state.messages.length === 0) {
+            apiMessages.push({
+                role: 'system',
+                content: 'You are a helpful AI assistant. Please provide clear and concise responses.'
+            });
+        }
+        
+        // Add previous messages for context (limit to last 10 for token management)
+        const contextMessages = state.messages.slice(-10);
+        contextMessages.forEach(msg => {
+            apiMessages.push({
+                role: msg.role,
+                content: msg.content
+            });
+        });
+        
+        // Add current message
+        apiMessages.push({
             role: 'user',
             content: message
         });
-    
-    // Prepare messages for API
-    const apiMessages = state.messages.map(m => ({
-        role: m.role,
-        content: m.content
-    }));
-    apiMessages.push({ role: 'user', content: message });
-    
-    try {
-        const response = await fetch(OPENROUTER_API_URL, {
+        
+        console.log('Sending to OpenRouter API...');
+        console.log('Messages:', apiMessages);
+        
+        // Make API call to OpenRouter
+        const requestBody = {
+            model: elements.modelSelector.value || 'openai/gpt-3.5-turbo',
+            messages: apiMessages,
+            max_tokens: parseInt(elements.maxTokens?.value || 2000),
+            temperature: parseFloat(elements.temperature?.value || 0.7),
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0,
+            stream: false
+        };
+        
+        console.log('Request body:', requestBody);
+        
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
-                'HTTP-Referer': window.location.href,
+                'HTTP-Referer': window.location.origin || 'http://localhost:3000',
                 'X-Title': '0xHiTek Chat',
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                model: elements.modelSelector.value || APP_CONFIG.defaultModel,
-                messages: apiMessages,
-                max_tokens: parseInt(elements.maxTokens.value),
-                temperature: parseFloat(elements.temperature.value)
-            })
+            body: JSON.stringify(requestBody)
         });
         
+        console.log('API Response status:', response.status);
+        
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error?.message || `API Error: ${response.status}`);
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            
+            let errorMessage = 'API Error';
+            try {
+                const errorData = JSON.parse(errorText);
+                errorMessage = errorData.error?.message || errorData.message || errorText;
+                
+                // Handle specific error cases
+                if (response.status === 402) {
+                    errorMessage = 'Insufficient credits. Please add credits to your OpenRouter account.';
+                } else if (response.status === 401) {
+                    errorMessage = 'Invalid API key. Please check your OpenRouter API key.';
+                } else if (response.status === 429) {
+                    errorMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+                } else if (response.status === 400) {
+                    errorMessage = `Bad request: ${errorMessage}`;
+                }
+            } catch (e) {
+                console.error('Error parsing error response:', e);
+            }
+            
+            throw new Error(errorMessage);
         }
         
         const data = await response.json();
-        const assistantMessage = data.choices[0].message.content;
+        console.log('API Response data:', data);
+        
+        if (!data.choices || data.choices.length === 0) {
+            throw new Error('No response from AI model');
+        }
+        
+        const assistantMessage = data.choices[0].message?.content || data.choices[0].text;
+        
+        if (!assistantMessage) {
+            throw new Error('Empty response from AI model');
+        }
+        
+        console.log('Assistant message:', assistantMessage);
         
         // Update token count
         const tokensUsed = data.usage?.total_tokens || 0;
@@ -1438,7 +1530,8 @@ async function sendMessage() {
         addMessageToUI('assistant', assistantMessage);
         
         // Save assistant message to database
-        await supabase
+        console.log('Saving assistant message to database...');
+        const { error: assistantSaveError } = await supabase
             .from('messages')
             .insert({
                 chat_id: state.currentChatId,
@@ -1448,8 +1541,12 @@ async function sendMessage() {
                 tokens: tokensUsed
             });
         
+        if (assistantSaveError) {
+            console.error('Error saving assistant message:', assistantSaveError);
+        }
+        
         // Update usage count
-        const newUsageCount = state.profile.usage_count + tokensUsed;
+        const newUsageCount = (state.profile.usage_count || 0) + tokensUsed;
         await supabase
             .from('profiles')
             .update({ 
@@ -1502,47 +1599,237 @@ async function sendMessage() {
             showNotification('Warning: You have used 90% of your usage limit!', 'error');
         }
         
+        console.log('Message sent successfully!');
+        
     } catch (error) {
-        console.error('Error:', error);
-        showNotification('Error: ' + error.message, 'error');
+        console.error('Error in sendMessage:', error);
+        showNotification(`Error: ${error.message}`, 'error');
+        
+        // Remove the user message if it failed
+        const lastMessage = elements.messagesContainer.lastElementChild;
+        if (lastMessage && lastMessage.classList.contains('user')) {
+            lastMessage.remove();
+        }
     } finally {
+        // Re-enable input
         elements.sendBtn.disabled = false;
         showLoading(false);
         elements.messageInput.focus();
     }
 }
 
-function addMessageToUI(role, content) {
-    // Remove welcome message if exists
-    const welcomeMsg = document.querySelector('.welcome-message');
-    if (welcomeMsg) {
-        welcomeMsg.remove();
+// FIXED: Start new chat function
+async function startNewChat() {
+    try {
+        console.log('Creating new chat...');
+        
+        const { data: chat, error } = await supabase
+            .from('chats')
+            .insert({
+                user_id: state.user.id,
+                title: 'New Chat',
+                model: elements.modelSelector.value || 'openai/gpt-3.5-turbo'
+            })
+            .select()
+            .single();
+        
+        if (error) {
+            console.error('Error creating chat:', error);
+            showNotification('Failed to create new chat', 'error');
+            return null;
+        }
+        
+        if (chat) {
+            state.currentChatId = chat.id;
+            state.messages = [];
+            state.sessionTokens = 0;
+            elements.tokenCount.textContent = '0';
+            
+            // Clear messages container and show welcome
+            elements.messagesContainer.innerHTML = `
+                <div class="welcome-message">
+                    <div class="cyber-grid"></div>
+                    <h2 class="glitch" data-text="Welcome to 0xHiTek">Welcome to 0xHiTek</h2>
+                    <p>Your gateway to AI models via OpenRouter</p>
+                    <div class="feature-grid">
+                        <div class="feature-card">
+                            <i class="fas fa-robot"></i>
+                            <span>Multiple AI Models</span>
+                        </div>
+                        <div class="feature-card">
+                            <i class="fas fa-database"></i>
+                            <span>Cloud Storage</span>
+                        </div>
+                        <div class="feature-card">
+                            <i class="fas fa-bolt"></i>
+                            <span>Fast Response</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            await loadChatHistory();
+            console.log('New chat created:', chat.id);
+            return chat;
+        }
+    } catch (error) {
+        console.error('Error in startNewChat:', error);
+        showNotification('Failed to start new chat', 'error');
+        return null;
     }
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role}`;
-    
-    const timestamp = state.settings?.show_timestamps 
-        ? new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
-        : '';
-    
-    messageDiv.innerHTML = `
-        <div class="message-avatar">
-            <i class="fas fa-${role === 'user' ? 'user' : 'robot'}"></i>
-        </div>
-        <div class="message-content">
-            <div class="message-header">
-                <span class="message-role">${role === 'user' ? 'You' : 'AI'}</span>
-                ${timestamp ? `<span class="message-time">${timestamp}</span>` : ''}
-            </div>
-            <div class="message-text">${escapeHtml(content)}</div>
-        </div>
-    `;
-    
-    elements.messagesContainer.appendChild(messageDiv);
-    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 }
 
+// FIXED: Add message to UI with better error handling
+function addMessageToUI(role, content) {
+    try {
+        // Remove welcome message if exists
+        const welcomeMsg = document.querySelector('.welcome-message');
+        if (welcomeMsg) {
+            welcomeMsg.remove();
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${role}`;
+        
+        const timestamp = state.settings?.show_timestamps 
+            ? new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+            : '';
+        
+        // Format content for better display
+        const formattedContent = formatMessageContent(content);
+        
+        messageDiv.innerHTML = `
+            <div class="message-avatar">
+                <i class="fas fa-${role === 'user' ? 'user' : 'robot'}"></i>
+            </div>
+            <div class="message-content">
+                <div class="message-header">
+                    <span class="message-role">${role === 'user' ? 'You' : 'AI'}</span>
+                    ${timestamp ? `<span class="message-time">${timestamp}</span>` : ''}
+                </div>
+                <div class="message-text">${formattedContent}</div>
+            </div>
+        `;
+        
+        elements.messagesContainer.appendChild(messageDiv);
+        elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+        
+        console.log(`Added ${role} message to UI`);
+    } catch (error) {
+        console.error('Error adding message to UI:', error);
+    }
+}
+
+// Format message content for display
+function formatMessageContent(content) {
+    // Escape HTML to prevent XSS
+    let formatted = escapeHtml(content);
+    
+    // Convert markdown-style code blocks to HTML
+    formatted = formatted.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    
+    // Convert inline code to HTML
+    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Convert line breaks to HTML
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    return formatted;
+}
+
+// Test function to verify API connection
+async function testAPIConnection() {
+    console.group('🔍 Testing API Connection');
+    
+    if (!state.profile?.openrouter_api_key) {
+        console.error('No API key found!');
+        showNotification('Please add your OpenRouter API key first', 'error');
+        console.groupEnd();
+        return;
+    }
+    
+    try {
+        console.log('Testing with API key:', state.profile.openrouter_api_key.substring(0, 10) + '...');
+        
+        // Test 1: Verify API key
+        console.log('Test 1: Verifying API key...');
+        const authResponse = await fetch('https://openrouter.ai/api/v1/auth/key', {
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'HTTP-Referer': window.location.origin || 'http://localhost:3000',
+                'X-Title': '0xHiTek Chat'
+            }
+        });
+        
+        const authData = await authResponse.json();
+        console.log('Auth response:', authData);
+        
+        if (!authResponse.ok) {
+            throw new Error('Invalid API key');
+        }
+        
+        // Test 2: Send a test message
+        console.log('Test 2: Sending test message...');
+        const testResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${state.profile.openrouter_api_key}`,
+                'HTTP-Referer': window.location.origin || 'http://localhost:3000',
+                'X-Title': '0xHiTek Chat',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'openai/gpt-3.5-turbo',
+                messages: [
+                    { role: 'user', content: 'Say "Hello, API is working!"' }
+                ],
+                max_tokens: 20
+            })
+        });
+        
+        const testData = await testResponse.json();
+        console.log('Test response:', testData);
+        
+        if (testResponse.ok && testData.choices?.[0]?.message?.content) {
+            console.log('✅ API Connection Successful!');
+            showNotification('API connection test successful!', 'success');
+        } else {
+            console.error('API test failed:', testData);
+            showNotification('API test failed: ' + (testData.error?.message || 'Unknown error'), 'error');
+        }
+        
+    } catch (error) {
+        console.error('❌ API Connection Failed:', error);
+        showNotification('API connection failed: ' + error.message, 'error');
+    }
+    
+    console.groupEnd();
+}
+
+// Manual debug function
+function debugChat() {
+    console.group('🔍 Chat Debug Info');
+    console.log('Current Chat ID:', state.currentChatId);
+    console.log('Messages in state:', state.messages);
+    console.log('API Key exists:', !!state.profile?.openrouter_api_key);
+    console.log('Selected Model:', elements.modelSelector.value);
+    console.log('Max Tokens:', elements.maxTokens?.value);
+    console.log('Temperature:', elements.temperature?.value);
+    console.log('Usage:', state.profile?.usage_count, '/', state.profile?.usage_limit);
+    console.groupEnd();
+}
+
+// Add keyboard shortcut for testing
+document.addEventListener('keydown', function(e) {
+    // Ctrl+Shift+T to test API
+    if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        testAPIConnection();
+    }
+    // Ctrl+Shift+D for debug info
+    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        debugChat();
+    }
+});
 // Settings Functions
 async function saveSettings() {
     const settings = {
