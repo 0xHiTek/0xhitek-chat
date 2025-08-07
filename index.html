@@ -1,4 +1,887 @@
-<!DOCTYPE html>
+<th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Messages</th>
+                                    <th>Joined</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <!-- Users will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" id="closeAuthModal">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div class="modal-header">
+                <h2 id="authTitle">LOGIN</h2>
+                <p id="authSubtitle">Access the system</p>
+            </div>
+            
+            <form id="authForm" class="auth-form">
+                <div class="form-group">
+                    <label for="authEmail">
+                        <i class="fas fa-envelope"></i> Email
+                    </label>
+                    <input 
+                        type="email" 
+                        id="authEmail" 
+                        placeholder="user@example.com"
+                        required
+                    >
+                </div>
+                
+                <div class="form-group">
+                    <label for="authPassword">
+                        <i class="fas fa-lock"></i> Password
+                    </label>
+                    <input 
+                        type="password" 
+                        id="authPassword" 
+                        placeholder="••••••••"
+                        required
+                    >
+                </div>
+                
+                <div class="form-group" id="nameGroup" style="display: none;">
+                    <label for="authName">
+                        <i class="fas fa-user"></i> Full Name
+                    </label>
+                    <input 
+                        type="text" 
+                        id="authName" 
+                        placeholder="John Doe"
+                    >
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                    <span id="authSubmitText">LOGIN</span>
+                </button>
+                
+                <div style="margin-top: 1rem; text-align: center;">
+                    <p id="authToggleText" style="color: var(--text-muted);">
+                        Don't have an account? 
+                        <a href="#" id="authToggleLink" style="color: var(--primary);">Sign up</a>
+                    </p>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Profile Settings Modal -->
+    <div id="profileModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" id="closeProfileModal">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div class="modal-header">
+                <h2>PROFILE SETTINGS</h2>
+                <p>Configure your account</p>
+            </div>
+            
+            <form id="profileForm" class="profile-form">
+                <div class="form-group">
+                    <label for="profileName">
+                        <i class="fas fa-user"></i> Full Name
+                    </label>
+                    <input type="text" id="profileName" placeholder="Enter your full name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="profileEmail">
+                        <i class="fas fa-envelope"></i> Email
+                    </label>
+                    <input type="email" id="profileEmail" disabled>
+                </div>
+                
+                <div class="form-group">
+                    <label for="openrouterKey">
+                        <i class="fas fa-key"></i> OpenRouter API Key
+                    </label>
+                    <input 
+                        type="password" 
+                        id="openrouterKey" 
+                        placeholder="sk-or-v1-..."
+                    >
+                    <small>Get your API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter.ai</a></small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="maxTokens">
+                        <i class="fas fa-coins"></i> Max Tokens
+                    </label>
+                    <input type="number" id="maxTokens" value="1000" min="100" max="4000">
+                </div>
+                
+                <div class="form-group">
+                    <label for="temperature">
+                        <i class="fas fa-thermometer-half"></i> Temperature
+                    </label>
+                    <input type="number" id="temperature" value="0.7" min="0" max="2" step="0.1">
+                </div>
+                
+                <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                    <i class="fas fa-save"></i> SAVE SETTINGS
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Main Application Script -->
+    <script>
+        // ============================================
+        // Environment Configuration (Secure)
+        // ============================================
+        // These will be replaced by Netlify environment variables in production
+        const ENV = {
+            SUPABASE_URL: window.SUPABASE_URL || '',
+            SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY || '',
+            OPENROUTER_API_KEY: window.OPENROUTER_API_KEY || '',
+            ADMIN_EMAIL: 'admin@0xhitek.com'
+        };
+
+        // ============================================
+        // Initialize Supabase Client
+        // ============================================
+        let supabase;
+        if (ENV.SUPABASE_URL && ENV.SUPABASE_ANON_KEY) {
+            supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+        }
+
+        // ============================================
+        // State Management
+        // ============================================
+        class AppState {
+            constructor() {
+                this.user = null;
+                this.currentChatId = null;
+                this.messages = [];
+                this.chats = [];
+                this.settings = {
+                    openrouterKey: '',
+                    maxTokens: 1000,
+                    temperature: 0.7,
+                    selectedModel: 'openai/gpt-3.5-turbo'
+                };
+                this.tokenCount = 0;
+                this.isProcessing = false;
+                this.keepAliveInterval = null;
+                this.lastActivity = Date.now();
+            }
+
+            setUser(user) {
+                this.user = user;
+                this.updateUI();
+            }
+
+            updateUI() {
+                const elements = {
+                    loginBtn: document.getElementById('loginBtn'),
+                    signupBtn: document.getElementById('signupBtn'),
+                    logoutBtn: document.getElementById('logoutBtn'),
+                    profileBtn: document.getElementById('profileBtn'),
+                    adminBtn: document.getElementById('adminBtn'),
+                    userInfo: document.getElementById('userInfo'),
+                    userEmail: document.getElementById('userEmail'),
+                    sendBtn: document.getElementById('sendBtn')
+                };
+
+                if (this.user) {
+                    elements.loginBtn.style.display = 'none';
+                    elements.signupBtn.style.display = 'none';
+                    elements.logoutBtn.style.display = 'block';
+                    elements.profileBtn.style.display = 'block';
+                    elements.userInfo.style.display = 'flex';
+                    elements.userEmail.textContent = this.user.email;
+                    elements.sendBtn.disabled = false;
+
+                    if (this.user.email === ENV.ADMIN_EMAIL || this.user.role === 'admin') {
+                        elements.adminBtn.style.display = 'block';
+                    }
+                } else {
+                    elements.loginBtn.style.display = 'block';
+                    elements.signupBtn.style.display = 'block';
+                    elements.logoutBtn.style.display = 'none';
+                    elements.profileBtn.style.display = 'none';
+                    elements.adminBtn.style.display = 'none';
+                    elements.userInfo.style.display = 'none';
+                    elements.sendBtn.disabled = true;
+                }
+            }
+
+            startKeepAlive() {
+                if (this.keepAliveInterval) {
+                    clearInterval(this.keepAliveInterval);
+                }
+                
+                this.keepAliveInterval = setInterval(async () => {
+                    if (this.user && !this.isProcessing && supabase) {
+                        try {
+                            await supabase.from('profiles').select('id').eq('id', this.user.id).limit(1).single();
+                            this.lastActivity = Date.now();
+                        } catch (error) {
+                            console.log('Keep-alive ping');
+                        }
+                    }
+                }, 20000); // 20 seconds
+            }
+
+            stopKeepAlive() {
+                if (this.keepAliveInterval) {
+                    clearInterval(this.keepAliveInterval);
+                    this.keepAliveInterval = null;
+                }
+            }
+
+            isConnectionStale() {
+                return (Date.now() - this.lastActivity) > 30000;
+            }
+
+            updateActivity() {
+                this.lastActivity = Date.now();
+            }
+        }
+
+        const appState = new AppState();
+
+        // ============================================
+        // Initialization
+        // ============================================
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Check if environment variables are configured
+            if (!ENV.SUPABASE_URL || !ENV.SUPABASE_ANON_KEY) {
+                console.warn('Environment variables not configured. Please set up in Netlify.');
+                setTimeout(() => {
+                    document.getElementById('loadingScreen').style.display = 'none';
+                    document.getElementById('app').style.display = 'flex';
+                    showToast('Please configure environment variables in Netlify settings', 'warning');
+                }, 1500);
+                setupEventListeners();
+                return;
+            }
+
+            // Hide loading screen
+            setTimeout(() => {
+                document.getElementById('loadingScreen').style.display = 'none';
+                document.getElementById('app').style.display = 'flex';
+            }, 1500);
+
+            // Check for existing session
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                appState.setUser(session.user);
+                await loadUserProfile();
+                await loadChatHistory();
+                appState.startKeepAlive();
+            }
+
+            // Setup auth state listener
+            supabase.auth.onAuthStateChange(async (event, session) => {
+                if (session) {
+                    appState.setUser(session.user);
+                    await loadUserProfile();
+                    await loadChatHistory();
+                    appState.startKeepAlive();
+                } else {
+                    appState.setUser(null);
+                    appState.stopKeepAlive();
+                }
+            });
+
+            setupEventListeners();
+        });
+
+        // ============================================
+        // Event Listeners
+        // ============================================
+        function setupEventListeners() {
+            // Auth buttons
+            document.getElementById('loginBtn').addEventListener('click', () => openAuthModal('login'));
+            document.getElementById('signupBtn').addEventListener('click', () => openAuthModal('signup'));
+            document.getElementById('logoutBtn').addEventListener('click', handleLogout);
+            
+            // Profile & Admin
+            document.getElementById('profileBtn').addEventListener('click', openProfileModal);
+            document.getElementById('adminBtn').addEventListener('click', openAdminDashboard);
+            document.getElementById('closeAdminBtn')?.addEventListener('click', closeAdminDashboard);
+            
+            // Chat controls
+            document.getElementById('newChatBtn').addEventListener('click', createNewChat);
+            document.getElementById('sendBtn').addEventListener('click', () => sendMessage());
+            
+            // Message input
+            const messageInput = document.getElementById('messageInput');
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            messageInput.addEventListener('input', () => {
+                messageInput.style.height = 'auto';
+                messageInput.style.height = messageInput.scrollHeight + 'px';
+            });
+            
+            // Model selector
+            document.getElementById('modelSelect').addEventListener('change', (e) => {
+                appState.settings.selectedModel = e.target.value;
+            });
+            
+            // Auth form
+            document.getElementById('authForm').addEventListener('submit', handleAuthSubmit);
+            document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
+            document.getElementById('closeAuthModal').addEventListener('click', closeAuthModal);
+            
+            // Profile form
+            document.getElementById('profileForm').addEventListener('submit', handleProfileSubmit);
+            document.getElementById('closeProfileModal').addEventListener('click', closeProfileModal);
+        }
+
+        // ============================================
+        // Authentication Functions
+        // ============================================
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            
+            if (!supabase) {
+                showToast('Database not configured', 'error');
+                return;
+            }
+            
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            const isLogin = document.getElementById('authTitle').textContent === 'LOGIN';
+            
+            try {
+                if (isLogin) {
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                        email,
+                        password
+                    });
+                    
+                    if (error) throw error;
+                    
+                    showToast('Login successful!', 'success');
+                    closeAuthModal();
+                } else {
+                    const fullName = document.getElementById('authName').value;
+                    const { data, error } = await supabase.auth.signUp({
+                        email,
+                        password,
+                        options: {
+                            data: { full_name: fullName }
+                        }
+                    });
+                    
+                    if (error) throw error;
+                    
+                    if (data.user) {
+                        await supabase.from('profiles').insert({
+                            id: data.user.id,
+                            email,
+                            full_name: fullName,
+                            openrouter_key: appState.settings.openrouterKey || ENV.OPENROUTER_API_KEY,
+                            role: email === ENV.ADMIN_EMAIL ? 'admin' : 'user'
+                        });
+                    }
+                    
+                    showToast('Signup successful! Please check your email.', 'success');
+                    closeAuthModal();
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function handleLogout() {
+            if (!supabase) return;
+            
+            try {
+                const { error } = await supabase.auth.signOut();
+                if (error) throw error;
+                
+                appState.user = null;
+                appState.currentChatId = null;
+                appState.messages = [];
+                appState.stopKeepAlive();
+                
+                clearChatDisplay();
+                showToast('Logged out successfully', 'success');
+            } catch (error) {
+                showToast('Error logging out', 'error');
+            }
+        }
+
+        // ============================================
+        // Profile Management
+        // ============================================
+        async function loadUserProfile() {
+            if (!appState.user || !supabase) return;
+            
+            try {
+                let { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', appState.user.id)
+                    .single();
+                
+                if (error && error.code === 'PGRST116') {
+                    // Create profile if doesn't exist
+                    const { data: newProfile } = await supabase
+                        .from('profiles')
+                        .insert({
+                            id: appState.user.id,
+                            email: appState.user.email,
+                            full_name: appState.user.user_metadata?.full_name || '',
+                            openrouter_key: ENV.OPENROUTER_API_KEY || '',
+                            role: appState.user.email === ENV.ADMIN_EMAIL ? 'admin' : 'user'
+                        })
+                        .select()
+                        .single();
+                    
+                    data = newProfile;
+                }
+                
+                if (data) {
+                    if (data.openrouter_key) {
+                        appState.settings.openrouterKey = data.openrouter_key;
+                    }
+                    if (data.settings) {
+                        appState.settings = { ...appState.settings, ...data.settings };
+                    }
+                    
+                    document.getElementById('profileName').value = data.full_name || '';
+                    document.getElementById('profileEmail').value = data.email;
+                    document.getElementById('openrouterKey').value = data.openrouter_key || '';
+                }
+            } catch (error) {
+                console.error('Error loading profile:', error);
+            }
+        }
+
+        async function handleProfileSubmit(e) {
+            e.preventDefault();
+            
+            if (!appState.user || !supabase) return;
+            
+            try {
+                const profileData = {
+                    full_name: document.getElementById('profileName').value,
+                    openrouter_key: document.getElementById('openrouterKey').value,
+                    settings: {
+                        maxTokens: parseInt(document.getElementById('maxTokens').value),
+                        temperature: parseFloat(document.getElementById('temperature').value),
+                        selectedModel: document.getElementById('modelSelect').value
+                    }
+                };
+                
+                const { error } = await supabase
+                    .from('profiles')
+                    .update(profileData)
+                    .eq('id', appState.user.id);
+                
+                if (error) throw error;
+                
+                appState.settings = { ...appState.settings, ...profileData.settings };
+                appState.settings.openrouterKey = profileData.openrouter_key;
+                
+                showToast('Profile updated successfully', 'success');
+                closeProfileModal();
+            } catch (error) {
+                showToast('Error updating profile', 'error');
+            }
+        }
+
+        // ============================================
+        // Chat Management
+        // ============================================
+        async function createNewChat() {
+            if (!appState.user || !supabase) {
+                showToast('Please login to create a chat', 'warning');
+                return;
+            }
+            
+            try {
+                const { data, error } = await supabase
+                    .from('chats')
+                    .insert({
+                        user_id: appState.user.id,
+                        title: 'New Chat'
+                    })
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                
+                appState.currentChatId = data.id;
+                appState.messages = [];
+                clearChatDisplay();
+                await loadChatHistory();
+            } catch (error) {
+                showToast('Error creating chat', 'error');
+            }
+        }
+
+        async function loadChat(chatId) {
+            if (!appState.user || !supabase) return;
+            
+            try {
+                const { data: messages, error } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .eq('chat_id', chatId)
+                    .order('created_at', { ascending: true });
+                
+                if (error) throw error;
+                
+                appState.currentChatId = chatId;
+                appState.messages = messages || [];
+                displayMessages();
+            } catch (error) {
+                showToast('Error loading chat', 'error');
+            }
+        }
+
+        async function loadChatHistory() {
+            if (!appState.user || !supabase) return;
+            
+            try {
+                const { data, error } = await supabase
+                    .from('chats')
+                    .select('*')
+                    .eq('user_id', appState.user.id)
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+                
+                if (error) throw error;
+                
+                appState.chats = data || [];
+                displayChatHistory();
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        function displayChatHistory() {
+            const historyList = document.getElementById('historyList');
+            
+            if (appState.chats.length === 0) {
+                historyList.innerHTML = '<div class="chat-item">No chats yet</div>';
+                return;
+            }
+            
+            historyList.innerHTML = appState.chats.map(chat => `
+                <div class="chat-item ${chat.id === appState.currentChatId ? 'active' : ''}" 
+                     onclick="loadChat('${chat.id}')"
+                     data-chat-id="${chat.id}">
+                    <div class="chat-item-title">${chat.title || 'New Chat'}</div>
+                    <div class="chat-item-date">${formatDate(chat.created_at)}</div>
+                </div>
+            `).join('');
+        }
+
+        // ============================================
+        // Message Handling
+        // ============================================
+        async function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+            
+            if (!message || appState.isProcessing) return;
+            
+            if (!appState.user) {
+                showToast('Please login to send messages', 'warning');
+                return;
+            }
+            
+            // Check connection
+            if (appState.isConnectionStale()) {
+                await refreshConnection();
+            }
+            
+            appState.isProcessing = true;
+            appState.updateActivity();
+            
+            // Show processing message
+            document.getElementById('processingMsg').style.display = 'block';
+            
+            try {
+                if (!appState.currentChatId) {
+                    await createNewChat();
+                }
+                
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+                
+                displayMessage('user', message);
+                
+                // Save user message
+                if (supabase) {
+                    const { data: userMessage } = await supabase
+                        .from('messages')
+                        .insert({
+                            chat_id: appState.currentChatId,
+                            user_id: appState.user.id,
+                            role: 'user',
+                            content: message
+                        })
+                        .select()
+                        .single();
+                    
+                    if (userMessage) {
+                        appState.messages.push(userMessage);
+                    }
+                }
+                
+                showTypingIndicator();
+                
+                // Get AI response
+                const aiResponse = await getAIResponse(message);
+                
+                hideTypingIndicator();
+                document.getElementById('processingMsg').style.display = 'none';
+                
+                if (aiResponse) {
+                    displayMessage('assistant', aiResponse);
+                    
+                    // Save AI response
+                    if (supabase) {
+                        const { data: assistantMessage } = await supabase
+                            .from('messages')
+                            .insert({
+                                chat_id: appState.currentChatId,
+                                user_id: appState.user.id,
+                                role: 'assistant',
+                                content: aiResponse
+                            })
+                            .select()
+                            .single();
+                        
+                        if (assistantMessage) {
+                            appState.messages.push(assistantMessage);
+                        }
+                    }
+                    
+                    // Update chat title
+                    if (appState.messages.length <= 2) {
+                        await updateChatTitle(message);
+                    }
+                }
+            } catch (error) {
+                hideTypingIndicator();
+                document.getElementById('processingMsg').style.display = 'none';
+                showToast('Error: ' + error.message, 'error');
+            } finally {
+                appState.isProcessing = false;
+            }
+        }
+
+        async function getAIResponse(message) {
+            const apiKey = appState.settings.openrouterKey || ENV.OPENROUTER_API_KEY;
+            
+            if (!apiKey) {
+                throw new Error('OpenRouter API key not configured. Please add it in your profile settings.');
+            }
+            
+            const messages = [
+                ...appState.messages.slice(-10).map(msg => ({
+                    role: msg.role,
+                    content: msg.content
+                })),
+                { role: 'user', content: message }
+            ];
+            
+            // Check if on Netlify
+            const isProduction = window.location.hostname.includes('netlify.app') || 
+                               window.location.hostname.includes('0xhitek.com');
+            
+            const apiUrl = isProduction 
+                ? '/.netlify/functions/openrouter-proxy'
+                : 'https://openrouter.ai/api/v1/chat/completions';
+            
+            try {
+                const requestBody = {
+                    model: appState.settings.selectedModel,
+                    messages: messages,
+                    maxTokens: appState.settings.maxTokens,
+                    temperature: appState.settings.temperature
+                };
+                
+                if (isProduction) {
+                    requestBody.apiKey = apiKey;
+                }
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: isProduction 
+                        ? { 'Content-Type': 'application/json' }
+                        : {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json',
+                            'HTTP-Referer': window.location.origin,
+                            'X-Title': '0xHiTek Chat'
+                        },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `API Error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.usage) {
+                    appState.tokenCount += data.usage.total_tokens || 0;
+                    updateTokenDisplay();
+                }
+                
+                return data.choices[0]?.message?.content || 'No response generated';
+            } catch (error) {
+                console.error('OpenRouter API error:', error);
+                throw error;
+            }
+        }
+
+        async function refreshConnection() {
+            if (!supabase) return;
+            
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                
+                if (session) {
+                    appState.user = session.user;
+                    appState.updateActivity();
+                }
+            } catch (error) {
+                console.error('Error refreshing connection:', error);
+            }
+        }
+
+        async function updateChatTitle(message) {
+            if (!appState.currentChatId || !supabase) return;
+            
+            try {
+                const title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+                
+                await supabase
+                    .from('chats')
+                    .update({ title })
+                    .eq('id', appState.currentChatId);
+                
+                await loadChatHistory();
+            } catch (error) {
+                console.error('Error updating chat title:', error);
+            }
+        }
+
+        // ============================================
+        // UI Functions
+        // ============================================
+        function displayMessage(role, content) {
+            const container = document.getElementById('messagesContainer');
+            
+            const welcomeMsg = container.querySelector('.welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.remove();
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = 'message-avatar';
+            avatarDiv.innerHTML = role === 'user' ? 'U' : '<i class="fas fa-robot"></i>';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = content;
+            
+            messageDiv.appendChild(avatarDiv);
+            messageDiv.appendChild(contentDiv);
+            container.appendChild(messageDiv);
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function displayMessages() {
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+            
+            if (appState.messages.length === 0) {
+                container.innerHTML = `
+                    <div class="welcome-message">
+                        <div class="welcome-icon">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <h2>Welcome to 0xHiTek</h2>
+                        <p>Your gateway to AI models via OpenRouter</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            appState.messages.forEach(msg => {
+                displayMessage(msg.role, msg.content);
+            });
+        }
+
+        function clearChatDisplay() {
+            displayMessages();
+        }
+
+        function showTypingIndicator() {
+            document.getElementById('typingIndicator').style.display = 'block';
+        }
+
+        function hideTypingIndicator() {
+            document.getElementById('typingIndicator').style.display = 'none';
+        }
+
+        function updateTokenDisplay() {
+            document.getElementById('tokenCount').textContent = appState.tokenCount.toLocaleString();
+        }
+
+        // ============================================
+        // Admin Functions
+        // ============================================
+        async function openAdminDashboard() {
+            if (!appState.user || !supabase) return;
+            
+            try {
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', appState.user.id)
+                    .single();
+                
+                if (profile?.role !== 'admin' && appState.user.email !== ENV.ADMIN_EMAIL) {
+                    showToast('Unauthorized access', 'error');
+                    return;
+                }
+                
+                // Load statistics
+                const { data: users } = await supabase.from('profiles').select('*');
+                const { data: messages } = await supabase.from('messages').select('id');
+                const { data: chats } = await supabase.from('chats').select('id');
+                
+                const today = new Date();
+                today.setHours(0, 0, 0, <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -11,8 +894,813 @@
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Custom Styles -->
-    <link rel="stylesheet" href="style.css">
+    <!-- Custom Styles - Embedded for security -->
+    <style>
+        /* ============================================
+           0xHiTek Chat - Original Hacker Theme
+           ============================================ */
+
+        /* Root Variables - Black/Green Hacker Theme */
+        :root {
+            --primary: #00ff00;
+            --primary-dark: #00cc00;
+            --primary-glow: rgba(0, 255, 0, 0.5);
+            --secondary: #00ffaa;
+            --bg-dark: #000000;
+            --bg-medium: #0a0a0a;
+            --bg-light: #111111;
+            --bg-card: rgba(0, 255, 0, 0.03);
+            --text-primary: #00ff00;
+            --text-light: #00ff00;
+            --text-muted: rgba(0, 255, 0, 0.6);
+            --text-white: #ffffff;
+            --border: rgba(0, 255, 0, 0.2);
+            --border-glow: rgba(0, 255, 0, 0.5);
+            --success: #00ff00;
+            --danger: #ff0040;
+            --warning: #ffaa00;
+            --info: #00aaff;
+            --shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            --glow: 0 0 10px rgba(0, 255, 0, 0.5);
+        }
+
+        /* Reset & Base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Matrix Background Effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 255, 0, 0.03) 2px,
+                    rgba(0, 255, 0, 0.03) 4px
+                );
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-dark);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-content {
+            text-align: center;
+        }
+
+        .logo-animation {
+            font-size: 3rem;
+            font-weight: bold;
+            margin-bottom: 2rem;
+            text-shadow: var(--glow);
+            animation: pulse 2s infinite;
+        }
+
+        .logo-0x {
+            color: var(--primary);
+        }
+
+        .logo-hi {
+            color: var(--text-white);
+        }
+
+        .logo-tek {
+            color: var(--primary);
+        }
+
+        .loading-text {
+            color: var(--text-primary);
+            text-shadow: var(--glow);
+            animation: blink 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* App Container */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-medium);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-shadow: var(--glow);
+        }
+
+        .tagline {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--primary);
+            border-radius: 0;
+            background: transparent;
+            color: var(--primary);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            background: var(--primary);
+            color: var(--bg-dark);
+            box-shadow: var(--glow);
+            transform: translateY(-2px);
+        }
+
+        .btn:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 0, 0.4), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover:before {
+            left: 100%;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--bg-dark);
+            border-color: var(--primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            border-color: var(--primary-dark);
+        }
+
+        .btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Main Content */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-medium);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+        }
+
+        .new-chat-btn {
+            width: 100%;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+
+        .chat-history {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .history-header {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .history-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .chat-item {
+            padding: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 0.5rem;
+            border: 1px solid transparent;
+            border-left: 3px solid transparent;
+        }
+
+        .chat-item:hover {
+            background: var(--bg-card);
+            border-color: var(--border);
+        }
+
+        .chat-item.active {
+            background: var(--bg-card);
+            border-left-color: var(--primary);
+            box-shadow: inset 0 0 10px rgba(0, 255, 0, 0.1);
+        }
+
+        .chat-item-title {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .chat-item-date {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* Chat Area */
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-dark);
+        }
+
+        .chat-header {
+            padding: 1rem;
+            background: var(--bg-medium);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .model-selector {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .model-select {
+            padding: 0.5rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+        }
+
+        .model-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .chat-info {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .token-counter {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        /* Messages Container */
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            background: var(--bg-dark);
+        }
+
+        .welcome-message {
+            text-align: center;
+            padding: 3rem 1rem;
+        }
+
+        .welcome-icon {
+            font-size: 4rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+            text-shadow: var(--glow);
+        }
+
+        .welcome-message h2 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+            text-shadow: var(--glow);
+        }
+
+        .welcome-message p {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+        }
+
+        .features {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        .feature {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .feature i {
+            font-size: 2rem;
+            color: var(--primary);
+            text-shadow: var(--glow);
+        }
+
+        /* Messages */
+        .message {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+            color: var(--primary);
+            background: var(--bg-medium);
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 1rem;
+            border: 1px solid var(--border);
+            background: var(--bg-medium);
+            color: var(--text-primary);
+        }
+
+        .message.user .message-content {
+            background: var(--bg-card);
+            border-color: var(--primary);
+        }
+
+        .message-timestamp {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 1rem;
+            background: var(--bg-medium);
+            border-top: 1px solid var(--border);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 0.75rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+            resize: none;
+            min-height: 50px;
+            max-height: 150px;
+        }
+
+        .message-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .send-btn {
+            padding: 0 1.5rem;
+        }
+
+        .input-info {
+            margin-top: 0.5rem;
+            min-height: 20px;
+        }
+
+        .typing-indicator {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            animation: blink 1s infinite;
+        }
+
+        /* Admin Dashboard */
+        .admin-dashboard {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            background: var(--bg-dark);
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .admin-header h2 {
+            font-size: 1.5rem;
+            color: var(--primary);
+            text-shadow: var(--glow);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-medium);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .stat-icon {
+            width: 60px;
+            height: 60px;
+            border: 1px solid var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+
+        .stat-content h3 {
+            font-size: 2rem;
+            color: var(--primary);
+            text-shadow: var(--glow);
+        }
+
+        .stat-content p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Tables */
+        .admin-table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid var(--border);
+        }
+
+        .admin-table th,
+        .admin-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+
+        .admin-table th {
+            background: var(--bg-medium);
+            color: var(--primary);
+        }
+
+        .admin-table tr:hover {
+            background: var(--bg-card);
+        }
+
+        /* Modals */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--bg-medium);
+            border: 1px solid var(--primary);
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: transparent;
+            border: none;
+            color: var(--primary);
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .modal-close:hover {
+            color: var(--danger);
+        }
+
+        .modal-header {
+            padding: 2rem 2rem 1rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-header h2 {
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+            text-shadow: var(--glow);
+        }
+
+        .modal-header p {
+            color: var(--text-muted);
+        }
+
+        /* Forms */
+        .auth-form,
+        .profile-form {
+            padding: 2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 0.25rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .form-group small a {
+            color: var(--primary);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 2000;
+        }
+
+        .toast {
+            background: var(--bg-medium);
+            border: 1px solid var(--primary);
+            padding: 1rem 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            box-shadow: var(--glow);
+            animation: slideInRight 0.3s ease;
+            color: var(--text-primary);
+        }
+
+        .toast.success {
+            border-color: var(--success);
+        }
+
+        .toast.error {
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+
+        .toast.warning {
+            border-color: var(--warning);
+            color: var(--warning);
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border: 1px solid var(--bg-dark);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-dark);
+        }
+
+        /* Processing State */
+        .processing-text {
+            color: var(--text-primary);
+            text-align: center;
+            padding: 2rem;
+            font-size: 1.2rem;
+            text-shadow: var(--glow);
+            animation: pulse 1s infinite;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .sidebar {
+                display: none;
+            }
+            
+            .header {
+                padding: 1rem;
+            }
+            
+            .logo {
+                font-size: 1.2rem;
+            }
+            
+            .tagline {
+                display: none;
+            }
+            
+            .message-content {
+                max-width: 85%;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Loading Screen -->
@@ -23,8 +1711,7 @@
                 <span class="logo-hi">Hi</span>
                 <span class="logo-tek">Tek</span>
             </div>
-            <div class="loading-spinner"></div>
-            <p>Initializing AI Chat...</p>
+            <p class="loading-text">INITIALIZING SYSTEM...</p>
         </div>
     </div>
 
@@ -48,19 +1735,19 @@
                 </span>
                 
                 <div class="header-buttons">
-                    <button id="loginBtn" class="btn btn-outline">
+                    <button id="loginBtn" class="btn">
                         <i class="fas fa-sign-in-alt"></i> Login
                     </button>
                     <button id="signupBtn" class="btn btn-primary">
                         <i class="fas fa-user-plus"></i> Sign Up
                     </button>
-                    <button id="profileBtn" class="btn btn-outline" style="display: none;">
+                    <button id="profileBtn" class="btn" style="display: none;">
                         <i class="fas fa-cog"></i> Profile
                     </button>
-                    <button id="adminBtn" class="btn btn-outline" style="display: none;">
+                    <button id="adminBtn" class="btn" style="display: none;">
                         <i class="fas fa-shield-alt"></i> Admin
                     </button>
-                    <button id="logoutBtn" class="btn btn-outline" style="display: none;">
+                    <button id="logoutBtn" class="btn" style="display: none;">
                         <i class="fas fa-sign-out-alt"></i> Logout
                     </button>
                 </div>
@@ -75,7 +1762,7 @@
                     <i class="fas fa-plus"></i> New Chat
                 </button>
                 
-                <div class="chat-history" id="chatHistory">
+                <div class="chat-history">
                     <div class="history-header">Chat History</div>
                     <div id="historyList" class="history-list">
                         <!-- Chat history items will be populated here -->
@@ -134,6 +1821,11 @@
                     </div>
                 </div>
 
+                <!-- Processing Message (Hidden by default) -->
+                <div id="processingMsg" class="processing-text" style="display: none;">
+                    PROCESSING...
+                </div>
+
                 <!-- Input Area -->
                 <div class="input-area">
                     <div class="input-container">
@@ -143,8 +1835,8 @@
                             placeholder="Type your message here..."
                             rows="1"
                         ></textarea>
-                        <button id="sendBtn" class="send-btn" disabled>
-                            <i class="fas fa-paper-plane"></i>
+                        <button id="sendBtn" class="send-btn btn btn-primary" disabled>
+                            <i class="fas fa-paper-plane"></i> SEND
                         </button>
                     </div>
                     <div class="input-info">
@@ -158,8 +1850,8 @@
             <!-- Admin Dashboard (Hidden by default) -->
             <div id="adminDashboard" class="admin-dashboard" style="display: none;">
                 <div class="admin-header">
-                    <h2><i class="fas fa-tachometer-alt"></i> Admin Dashboard</h2>
-                    <button id="closeAdminBtn" class="btn btn-outline">
+                    <h2><i class="fas fa-tachometer-alt"></i> ADMIN DASHBOARD</h2>
+                    <button id="closeAdminBtn" class="btn">
                         <i class="fas fa-times"></i> Close
                     </button>
                 </div>
@@ -207,7 +1899,7 @@
                 </div>
                 
                 <div class="admin-section">
-                    <h3><i class="fas fa-users-cog"></i> User Management</h3>
+                    <h3><i class="fas fa-users-cog"></i> USER MANAGEMENT</h3>
                     <div class="table-container">
                         <table class="admin-table">
                             <thead>
@@ -218,225 +1910,3 @@
                                     <th>Messages</th>
                                     <th>Joined</th>
                                     <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="usersTableBody">
-                                <!-- Users will be populated here -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                
-                <div class="admin-section">
-                    <h3><i class="fas fa-cogs"></i> System Settings</h3>
-                    <div class="settings-grid">
-                        <div class="setting-item">
-                            <label>Default Usage Limit</label>
-                            <input type="number" id="defaultLimit" value="1000" min="0">
-                        </div>
-                        <div class="setting-item">
-                            <label>Maintenance Mode</label>
-                            <label class="switch">
-                                <input type="checkbox" id="maintenanceMode">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <button id="saveSystemSettings" class="btn btn-primary">
-                        <i class="fas fa-save"></i> Save System Settings
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Auth Modal -->
-    <div id="authModal" class="modal">
-        <div class="modal-content">
-            <button class="modal-close" id="closeAuthModal">
-                <i class="fas fa-times"></i>
-            </button>
-            
-            <div class="modal-header">
-                <h2 id="authTitle">Login</h2>
-                <p id="authSubtitle">Welcome back! Please login to continue.</p>
-            </div>
-            
-            <form id="authForm" class="auth-form">
-                <div class="form-group">
-                    <label for="authEmail">
-                        <i class="fas fa-envelope"></i> Email
-                    </label>
-                    <input 
-                        type="email" 
-                        id="authEmail" 
-                        placeholder="Enter your email"
-                        required
-                    >
-                </div>
-                
-                <div class="form-group">
-                    <label for="authPassword">
-                        <i class="fas fa-lock"></i> Password
-                    </label>
-                    <input 
-                        type="password" 
-                        id="authPassword" 
-                        placeholder="Enter your password"
-                        required
-                    >
-                </div>
-                
-                <div class="form-group" id="nameGroup" style="display: none;">
-                    <label for="authName">
-                        <i class="fas fa-user"></i> Full Name
-                    </label>
-                    <input 
-                        type="text" 
-                        id="authName" 
-                        placeholder="Enter your full name"
-                    >
-                </div>
-                
-                <button type="submit" class="btn btn-primary btn-block">
-                    <span id="authSubmitText">Login</span>
-                </button>
-                
-                <div class="divider">OR</div>
-                
-                <div class="oauth-buttons">
-                    <button type="button" class="btn btn-oauth google" id="googleAuthBtn">
-                        <i class="fab fa-google"></i> Continue with Google
-                    </button>
-                    <button type="button" class="btn btn-oauth github" id="githubAuthBtn">
-                        <i class="fab fa-github"></i> Continue with GitHub
-                    </button>
-                </div>
-                
-                <div class="auth-footer">
-                    <p id="authToggleText">
-                        Don't have an account? 
-                        <a href="#" id="authToggleLink">Sign up</a>
-                    </p>
-                    <p class="forgot-password" id="forgotPasswordLink" style="display: none;">
-                        <a href="#">Forgot Password?</a>
-                    </p>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Profile Settings Modal -->
-    <div id="profileModal" class="modal">
-        <div class="modal-content">
-            <button class="modal-close" id="closeProfileModal">
-                <i class="fas fa-times"></i>
-            </button>
-            
-            <div class="modal-header">
-                <h2>Profile Settings</h2>
-                <p>Manage your account and preferences</p>
-            </div>
-            
-            <form id="profileForm" class="profile-form">
-                <div class="tabs">
-                    <button type="button" class="tab active" data-tab="profile">
-                        <i class="fas fa-user"></i> Profile
-                    </button>
-                    <button type="button" class="tab" data-tab="api">
-                        <i class="fas fa-key"></i> API Settings
-                    </button>
-                    <button type="button" class="tab" data-tab="chat">
-                        <i class="fas fa-sliders-h"></i> Chat Settings
-                    </button>
-                </div>
-                
-                <div class="tab-content active" id="profileTab">
-                    <div class="avatar-section">
-                        <div class="avatar">
-                            <i class="fas fa-user-circle"></i>
-                        </div>
-                        <button type="button" class="btn btn-outline">Change Avatar</button>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="profileName">
-                            <i class="fas fa-user"></i> Full Name
-                        </label>
-                        <input type="text" id="profileName" placeholder="Enter your full name">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="profileEmail">
-                            <i class="fas fa-envelope"></i> Email
-                        </label>
-                        <input type="email" id="profileEmail" disabled>
-                    </div>
-                </div>
-                
-                <div class="tab-content" id="apiTab">
-                    <div class="form-group">
-                        <label for="openrouterKey">
-                            <i class="fas fa-key"></i> OpenRouter API Key
-                        </label>
-                        <input 
-                            type="password" 
-                            id="openrouterKey" 
-                            placeholder="sk-or-v1-..."
-                        >
-                        <small>Get your API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter.ai</a></small>
-                    </div>
-                </div>
-                
-                <div class="tab-content" id="chatTab">
-                    <div class="form-group">
-                        <label for="maxTokens">
-                            <i class="fas fa-coins"></i> Max Tokens
-                        </label>
-                        <input type="number" id="maxTokens" value="1000" min="100" max="4000">
-                        <small>Maximum tokens per response (100-4000)</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="temperature">
-                            <i class="fas fa-thermometer-half"></i> Temperature
-                        </label>
-                        <div class="slider-container">
-                            <input type="range" id="temperature" value="0.7" min="0" max="2" step="0.1">
-                            <span id="temperatureValue">0.7</span>
-                        </div>
-                        <small>Controls randomness (0=focused, 2=creative)</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>
-                            <i class="fas fa-clock"></i> Display
-                        </label>
-                        <div class="checkbox-group">
-                            <label class="checkbox">
-                                <input type="checkbox" id="showTimestamps" checked>
-                                <span>Show timestamps</span>
-                            </label>
-                            <label class="checkbox">
-                                <input type="checkbox" id="enableSounds" checked>
-                                <span>Enable sound effects</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-                
-                <button type="submit" class="btn btn-primary btn-block">
-                    <i class="fas fa-save"></i> Save Profile
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Toast Container -->
-    <div id="toastContainer" class="toast-container"></div>
-
-    <!-- Scripts -->
-    <script src="config.js"></script>
-    <script src="app.js"></script>
-</body>
-</html>
