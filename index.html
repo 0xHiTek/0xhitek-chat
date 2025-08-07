@@ -3,175 +3,130 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>0xHiTek - AI Chat Interface</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <title>0xHiTek - AI Chat powered by OpenRouter</title>
+    
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Auth Container (Login/Signup) -->
-    <div id="authContainer" class="auth-container">
-        <div class="auth-box">
-            <div class="logo-container">
-                <h1 class="logo-text"><span class="zero">0x</span><span class="hi">Hi</span><span class="tek">Tek</span></h1>
-                <p class="tagline">AI Chat powered by OpenRouter</p>
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="logo-animation">
+                <span class="logo-0x">0x</span>
+                <span class="logo-hi">Hi</span>
+                <span class="logo-tek">Tek</span>
             </div>
-            
-            <div class="auth-tabs">
-                <button class="auth-tab active" data-tab="login">Login</button>
-                <button class="auth-tab" data-tab="signup">Sign Up</button>
-            </div>
-            
-            <!-- Login Form -->
-            <form id="loginForm" class="auth-form active">
-                <div class="input-group">
-                    <input type="email" id="loginEmail" placeholder="Email" required>
-                    <i class="fas fa-envelope"></i>
-                </div>
-                <div class="input-group">
-                    <input type="password" id="loginPassword" placeholder="Password" required>
-                    <i class="fas fa-lock"></i>
-                </div>
-                <button type="submit" class="auth-button">
-                    <i class="fas fa-sign-in-alt"></i> Login
-                </button>
-                <a href="#" id="forgotPassword" class="forgot-link">Forgot Password?</a>
-            </form>
-            
-            <!-- Signup Form -->
-            <form id="signupForm" class="auth-form">
-                <div class="input-group">
-                    <input type="text" id="signupName" placeholder="Full Name" required>
-                    <i class="fas fa-user"></i>
-                </div>
-                <div class="input-group">
-                    <input type="email" id="signupEmail" placeholder="Email" required>
-                    <i class="fas fa-envelope"></i>
-                </div>
-                <div class="input-group">
-                    <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" required>
-                    <i class="fas fa-lock"></i>
-                </div>
-                <button type="submit" class="auth-button">
-                    <i class="fas fa-user-plus"></i> Sign Up
-                </button>
-            </form>
-            
-            <!-- Social Login -->
-            <div class="social-login">
-                <div class="divider">OR</div>
-                <button id="googleLogin" class="social-button google">
-                    <i class="fab fa-google"></i> Continue with Google
-                </button>
-                <button id="githubLogin" class="social-button github">
-                    <i class="fab fa-github"></i> Continue with GitHub
-                </button>
-            </div>
+            <div class="loading-spinner"></div>
+            <p>Initializing AI Chat...</p>
         </div>
     </div>
 
-    <!-- Main App Container (Hidden until authenticated) -->
-    <div id="appContainer" class="app-wrapper" style="display: none;">
+    <!-- Main App Container -->
+    <div id="app" class="app-container" style="display: none;">
         <!-- Header -->
-        <header class="main-header">
-            <div class="logo-container">
-                <div class="logo-circuits">
-                    <svg viewBox="0 0 100 30" class="circuit-animation">
-                        <path d="M10,15 L30,15 L35,10 L50,10 L55,15 L90,15" stroke="var(--cyan)" stroke-width="2" fill="none"/>
-                        <circle cx="10" cy="15" r="3" fill="var(--cyan)"/>
-                        <circle cx="90" cy="15" r="3" fill="var(--cyan)"/>
-                        <circle cx="35" cy="10" r="2" fill="var(--purple)"/>
-                        <circle cx="50" cy="10" r="2" fill="var(--purple)"/>
-                    </svg>
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-0x">0x</span>
+                    <span class="logo-hi">Hi</span>
+                    <span class="logo-tek">Tek</span>
                 </div>
-                <h1 class="logo-text"><span class="zero">0x</span><span class="hi">Hi</span><span class="tek">Tek</span></h1>
+                <span class="tagline">AI Chat powered by OpenRouter</span>
             </div>
-            <div class="header-controls">
-                <div class="user-menu" id="userMenu">
-                    <img id="userAvatar" class="user-avatar" src="" alt="Avatar">
-                    <span id="userName" class="user-name"></span>
-                    <div class="user-dropdown" id="userDropdown">
-                        <a href="#" id="profileBtn"><i class="fas fa-user"></i> Profile</a>
-                        <a href="#" id="adminBtn" style="display: none;"><i class="fas fa-crown"></i> Admin</a>
-                        <a href="#" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> Logout</a>
-                    </div>
+            
+            <div class="header-right">
+                <span id="userInfo" class="user-info" style="display: none;">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="userEmail"></span>
+                </span>
+                
+                <div class="header-buttons">
+                    <button id="loginBtn" class="btn btn-outline">
+                        <i class="fas fa-sign-in-alt"></i> Login
+                    </button>
+                    <button id="signupBtn" class="btn btn-primary">
+                        <i class="fas fa-user-plus"></i> Sign Up
+                    </button>
+                    <button id="profileBtn" class="btn btn-outline" style="display: none;">
+                        <i class="fas fa-cog"></i> Profile
+                    </button>
+                    <button id="adminBtn" class="btn btn-outline" style="display: none;">
+                        <i class="fas fa-shield-alt"></i> Admin
+                    </button>
+                    <button id="logoutBtn" class="btn btn-outline" style="display: none;">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
                 </div>
-                <button class="theme-toggle" id="themeToggle">
-                    <i class="fas fa-moon"></i>
-                </button>
-                <button class="menu-toggle" id="menuToggle">
-                    <i class="fas fa-bars"></i>
-                </button>
             </div>
         </header>
 
-        <!-- Main Container -->
-        <div class="app-container">
+        <!-- Main Content Area -->
+        <div class="main-content">
             <!-- Sidebar -->
             <aside class="sidebar" id="sidebar">
-                <div class="sidebar-header">
-                    <button class="new-chat-btn" id="newChatBtn">
-                        <i class="fas fa-plus"></i>
-                        <span>New Chat</span>
-                    </button>
-                </div>
+                <button id="newChatBtn" class="btn btn-primary new-chat-btn">
+                    <i class="fas fa-plus"></i> New Chat
+                </button>
                 
                 <div class="chat-history" id="chatHistory">
-                    <h3 class="sidebar-title">Chat History</h3>
-                    <div class="history-list" id="historyList">
-                        <!-- Chat history items will be loaded from Supabase -->
+                    <div class="history-header">Chat History</div>
+                    <div id="historyList" class="history-list">
+                        <!-- Chat history items will be populated here -->
                     </div>
-                </div>
-
-                <div class="sidebar-footer">
-                    <div class="usage-display">
-                        <i class="fas fa-chart-bar"></i>
-                        <span>Usage: <span id="usageCount">0</span> / <span id="usageLimit">10000</span></span>
-                    </div>
-                    <button class="sidebar-btn" id="settingsBtn">
-                        <i class="fas fa-cog"></i>
-                        <span>Settings</span>
-                    </button>
-                    <button class="sidebar-btn" id="exportBtn">
-                        <i class="fas fa-download"></i>
-                        <span>Export</span>
-                    </button>
                 </div>
             </aside>
 
-            <!-- Main Chat Area -->
-            <main class="chat-container">
-                <!-- Model Selector Bar -->
-                <div class="model-selector-bar">
-                    <div class="model-search-container">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="modelSearch" placeholder="Search models..." class="model-search">
+            <!-- Chat Area -->
+            <main class="chat-area" id="chatArea">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <div class="model-selector">
+                        <label for="modelSelect">
+                            <i class="fas fa-robot"></i> Model:
+                        </label>
+                        <select id="modelSelect" class="model-select">
+                            <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            <option value="openai/gpt-4">GPT-4</option>
+                            <option value="anthropic/claude-2">Claude 2</option>
+                            <option value="anthropic/claude-instant-v1">Claude Instant</option>
+                            <option value="google/palm-2-chat-bison">PaLM 2</option>
+                            <option value="meta-llama/llama-2-70b-chat">Llama 2 70B</option>
+                        </select>
                     </div>
-                    <select id="modelSelector" class="model-selector">
-                        <option value="">Loading models...</option>
-                    </select>
-                    <div class="token-counter">
-                        <i class="fas fa-coins"></i>
-                        <span id="tokenCount">0</span> tokens
+                    
+                    <div class="chat-info">
+                        <div class="token-counter">
+                            <i class="fas fa-coins"></i>
+                            <span id="tokenCount">0</span> tokens
+                        </div>
                     </div>
                 </div>
 
-                <!-- Messages Area -->
+                <!-- Messages Container -->
                 <div class="messages-container" id="messagesContainer">
                     <div class="welcome-message">
-                        <div class="cyber-grid"></div>
-                        <h2 class="glitch" data-text="Welcome to 0xHiTek">Welcome to 0xHiTek</h2>
+                        <div class="welcome-icon">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <h2>Welcome to 0xHiTek</h2>
                         <p>Your gateway to AI models via OpenRouter</p>
-                        <div class="feature-grid">
-                            <div class="feature-card">
-                                <i class="fas fa-robot"></i>
+                        <div class="features">
+                            <div class="feature">
+                                <i class="fas fa-brain"></i>
                                 <span>Multiple AI Models</span>
                             </div>
-                            <div class="feature-card">
-                                <i class="fas fa-database"></i>
+                            <div class="feature">
+                                <i class="fas fa-cloud"></i>
                                 <span>Cloud Storage</span>
                             </div>
-                            <div class="feature-card">
+                            <div class="feature">
                                 <i class="fas fa-bolt"></i>
                                 <span>Fast Response</span>
                             </div>
@@ -180,208 +135,307 @@
                 </div>
 
                 <!-- Input Area -->
-                <div class="input-container">
-                    <div class="input-wrapper">
+                <div class="input-area">
+                    <div class="input-container">
                         <textarea 
                             id="messageInput" 
                             class="message-input" 
                             placeholder="Type your message here..."
-                            rows="1"></textarea>
-                        <button id="testApiBtn" class="test-api-btn" title="Test API Connection">
-                            <i class="fas fa-vial"></i>
-                        </button>
-                        <button id="sendBtn" class="send-btn">
+                            rows="1"
+                        ></textarea>
+                        <button id="sendBtn" class="send-btn" disabled>
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
+                    <div class="input-info">
+                        <span id="typingIndicator" class="typing-indicator" style="display: none;">
+                            <i class="fas fa-keyboard"></i> AI is typing...
+                        </span>
+                    </div>
                 </div>
             </main>
-        </div>
-    </div>
 
-    <!-- Profile Modal -->
-    <div class="modal" id="profileModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Profile Settings</h2>
-                <button class="modal-close" id="closeProfile">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="profile-section">
-                    <div class="profile-avatar-section">
-                        <img id="profileAvatar" class="profile-avatar" src="" alt="Avatar">
-                        <button id="changeAvatar" class="change-avatar-btn">
-                            <i class="fas fa-camera"></i> Change Avatar
-                        </button>
-                        <input type="file" id="avatarInput" accept="image/*" style="display: none;">
-                    </div>
-                    
-                    <div class="input-group">
-                        <label>Full Name</label>
-                        <input type="text" id="profileName" class="settings-input">
-                    </div>
-                    
-                    <div class="input-group">
-                        <label>Email</label>
-                        <input type="email" id="profileEmail" class="settings-input" readonly>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label>OpenRouter API Key</label>
-                        <div class="api-key-input-container">
-                            <input type="password" id="profileApiKey" placeholder="sk-or-v1-..." class="settings-input">
-                            <button class="toggle-visibility" id="toggleProfileApiKey">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                        <small>Get your API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter.ai</a></small>
-                    </div>
-                </div>
-
-                <button class="save-settings-btn" id="saveProfile">
-                    <i class="fas fa-save"></i> Save Profile
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Settings Modal -->
-    <div class="modal" id="settingsModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Chat Settings</h2>
-                <button class="modal-close" id="closeSettings">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="settings-section">
-                    <h3>Chat Configuration</h3>
-                    <div class="input-group">
-                        <label for="maxTokens">Max Tokens</label>
-                        <input type="number" id="maxTokens" value="2000" min="100" max="4000" class="settings-input">
-                    </div>
-                    <div class="input-group">
-                        <label for="temperature">Temperature</label>
-                        <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" class="settings-slider">
-                        <span id="tempValue">0.7</span>
-                    </div>
-                </div>
-
-                <div class="settings-section">
-                    <h3>Display</h3>
-                    <div class="checkbox-group">
-                        <label>
-                            <input type="checkbox" id="showTimestamps" checked>
-                            <span>Show timestamps</span>
-                        </label>
-                        <label>
-                            <input type="checkbox" id="soundEnabled">
-                            <span>Enable sound effects</span>
-                        </label>
-                    </div>
-                </div>
-
-                <button class="save-settings-btn" id="saveSettings">
-                    <i class="fas fa-save"></i> Save Settings
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Admin Dashboard Modal -->
-    <div class="modal" id="adminModal">
-        <div class="modal-content modal-large">
-            <div class="modal-header">
-                <h2>Admin Dashboard</h2>
-                <button class="modal-close" id="closeAdmin">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <div class="admin-tabs">
-                    <button class="admin-tab active" data-tab="users">Users</button>
-                    <button class="admin-tab" data-tab="usage">Usage Stats</button>
-                    <button class="admin-tab" data-tab="settings">System Settings</button>
+            <!-- Admin Dashboard (Hidden by default) -->
+            <div id="adminDashboard" class="admin-dashboard" style="display: none;">
+                <div class="admin-header">
+                    <h2><i class="fas fa-tachometer-alt"></i> Admin Dashboard</h2>
+                    <button id="closeAdminBtn" class="btn btn-outline">
+                        <i class="fas fa-times"></i> Close
+                    </button>
                 </div>
                 
-                <div id="adminUsers" class="admin-panel active">
-                    <h3>User Management</h3>
-                    <div class="admin-stats">
-                        <div class="stat-card">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
                             <i class="fas fa-users"></i>
-                            <div>
-                                <span class="stat-value" id="totalUsers">0</span>
-                                <span class="stat-label">Total Users</span>
-                            </div>
                         </div>
-                        <div class="stat-card">
-                            <i class="fas fa-chart-line"></i>
-                            <div>
-                                <span class="stat-value" id="activeUsers">0</span>
-                                <span class="stat-label">Active Today</span>
-                            </div>
+                        <div class="stat-content">
+                            <h3 id="totalUsers">0</h3>
+                            <p>Total Users</p>
                         </div>
                     </div>
-                    <div class="users-table-container">
-                        <table id="usersTable" class="admin-table">
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-comments"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="totalMessages">0</h3>
+                            <p>Total Messages</p>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="activeToday">0</h3>
+                            <p>Active Today</p>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="totalChats">0</h3>
+                            <p>Total Chats</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="admin-section">
+                    <h3><i class="fas fa-users-cog"></i> User Management</h3>
+                    <div class="table-container">
+                        <table class="admin-table">
                             <thead>
                                 <tr>
                                     <th>Name</th>
                                     <th>Email</th>
                                     <th>Role</th>
-                                    <th>Usage</th>
+                                    <th>Messages</th>
                                     <th>Joined</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody></tbody>
+                            <tbody id="usersTableBody">
+                                <!-- Users will be populated here -->
+                            </tbody>
                         </table>
                     </div>
                 </div>
                 
-                <div id="adminUsage" class="admin-panel">
-                    <h3>Usage Statistics</h3>
-                    <div class="usage-charts">
-                        <!-- Usage charts will go here -->
-                    </div>
-                </div>
-                
-                <div id="adminSettings" class="admin-panel">
-                    <h3>System Settings</h3>
-                    <div class="system-settings">
-                        <div class="input-group">
+                <div class="admin-section">
+                    <h3><i class="fas fa-cogs"></i> System Settings</h3>
+                    <div class="settings-grid">
+                        <div class="setting-item">
                             <label>Default Usage Limit</label>
-                            <input type="number" id="defaultUsageLimit" class="settings-input">
+                            <input type="number" id="defaultLimit" value="1000" min="0">
                         </div>
-                        <button class="save-settings-btn" id="saveSystemSettings">
-                            <i class="fas fa-save"></i> Save System Settings
-                        </button>
+                        <div class="setting-item">
+                            <label>Maintenance Mode</label>
+                            <label class="switch">
+                                <input type="checkbox" id="maintenanceMode">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
                     </div>
+                    <button id="saveSystemSettings" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save System Settings
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="cyber-loader">
-            <div class="loader-text">PROCESSING</div>
-            <div class="loader-bar"></div>
+    <!-- Auth Modal -->
+    <div id="authModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" id="closeAuthModal">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div class="modal-header">
+                <h2 id="authTitle">Login</h2>
+                <p id="authSubtitle">Welcome back! Please login to continue.</p>
+            </div>
+            
+            <form id="authForm" class="auth-form">
+                <div class="form-group">
+                    <label for="authEmail">
+                        <i class="fas fa-envelope"></i> Email
+                    </label>
+                    <input 
+                        type="email" 
+                        id="authEmail" 
+                        placeholder="Enter your email"
+                        required
+                    >
+                </div>
+                
+                <div class="form-group">
+                    <label for="authPassword">
+                        <i class="fas fa-lock"></i> Password
+                    </label>
+                    <input 
+                        type="password" 
+                        id="authPassword" 
+                        placeholder="Enter your password"
+                        required
+                    >
+                </div>
+                
+                <div class="form-group" id="nameGroup" style="display: none;">
+                    <label for="authName">
+                        <i class="fas fa-user"></i> Full Name
+                    </label>
+                    <input 
+                        type="text" 
+                        id="authName" 
+                        placeholder="Enter your full name"
+                    >
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-block">
+                    <span id="authSubmitText">Login</span>
+                </button>
+                
+                <div class="divider">OR</div>
+                
+                <div class="oauth-buttons">
+                    <button type="button" class="btn btn-oauth google" id="googleAuthBtn">
+                        <i class="fab fa-google"></i> Continue with Google
+                    </button>
+                    <button type="button" class="btn btn-oauth github" id="githubAuthBtn">
+                        <i class="fab fa-github"></i> Continue with GitHub
+                    </button>
+                </div>
+                
+                <div class="auth-footer">
+                    <p id="authToggleText">
+                        Don't have an account? 
+                        <a href="#" id="authToggleLink">Sign up</a>
+                    </p>
+                    <p class="forgot-password" id="forgotPasswordLink" style="display: none;">
+                        <a href="#">Forgot Password?</a>
+                    </p>
+                </div>
+            </form>
         </div>
     </div>
 
-    <!-- Notification Container -->
-    <div id="notificationContainer" class="notification-container"></div>
+    <!-- Profile Settings Modal -->
+    <div id="profileModal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" id="closeProfileModal">
+                <i class="fas fa-times"></i>
+            </button>
+            
+            <div class="modal-header">
+                <h2>Profile Settings</h2>
+                <p>Manage your account and preferences</p>
+            </div>
+            
+            <form id="profileForm" class="profile-form">
+                <div class="tabs">
+                    <button type="button" class="tab active" data-tab="profile">
+                        <i class="fas fa-user"></i> Profile
+                    </button>
+                    <button type="button" class="tab" data-tab="api">
+                        <i class="fas fa-key"></i> API Settings
+                    </button>
+                    <button type="button" class="tab" data-tab="chat">
+                        <i class="fas fa-sliders-h"></i> Chat Settings
+                    </button>
+                </div>
+                
+                <div class="tab-content active" id="profileTab">
+                    <div class="avatar-section">
+                        <div class="avatar">
+                            <i class="fas fa-user-circle"></i>
+                        </div>
+                        <button type="button" class="btn btn-outline">Change Avatar</button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="profileName">
+                            <i class="fas fa-user"></i> Full Name
+                        </label>
+                        <input type="text" id="profileName" placeholder="Enter your full name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="profileEmail">
+                            <i class="fas fa-envelope"></i> Email
+                        </label>
+                        <input type="email" id="profileEmail" disabled>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="apiTab">
+                    <div class="form-group">
+                        <label for="openrouterKey">
+                            <i class="fas fa-key"></i> OpenRouter API Key
+                        </label>
+                        <input 
+                            type="password" 
+                            id="openrouterKey" 
+                            placeholder="sk-or-v1-..."
+                        >
+                        <small>Get your API key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter.ai</a></small>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="chatTab">
+                    <div class="form-group">
+                        <label for="maxTokens">
+                            <i class="fas fa-coins"></i> Max Tokens
+                        </label>
+                        <input type="number" id="maxTokens" value="1000" min="100" max="4000">
+                        <small>Maximum tokens per response (100-4000)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="temperature">
+                            <i class="fas fa-thermometer-half"></i> Temperature
+                        </label>
+                        <div class="slider-container">
+                            <input type="range" id="temperature" value="0.7" min="0" max="2" step="0.1">
+                            <span id="temperatureValue">0.7</span>
+                        </div>
+                        <small>Controls randomness (0=focused, 2=creative)</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <i class="fas fa-clock"></i> Display
+                        </label>
+                        <div class="checkbox-group">
+                            <label class="checkbox">
+                                <input type="checkbox" id="showTimestamps" checked>
+                                <span>Show timestamps</span>
+                            </label>
+                            <label class="checkbox">
+                                <input type="checkbox" id="enableSounds" checked>
+                                <span>Enable sound effects</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-block">
+                    <i class="fas fa-save"></i> Save Profile
+                </button>
+            </form>
+        </div>
+    </div>
 
-    <!-- Sidebar Overlay for Mobile -->
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
 
-    <!-- Supabase SDK -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Main Application Script -->
+    <!-- Scripts -->
     <script src="config.js"></script>
     <script src="app.js"></script>
 </body>
