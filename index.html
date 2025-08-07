@@ -881,7 +881,177 @@
                 const { data: chats } = await supabase.from('chats').select('id');
                 
                 const today = new Date();
-                today.setHours(0, 0, 0, <!DOCTYPE html>
+                today.setHours(0, 0, 0, 0);
+                
+                const { data: activeUsers } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .gte('updated_at', today.toISOString());
+                
+                // Update stats
+                document.getElementById('totalUsers').textContent = users?.length || 0;
+                document.getElementById('totalMessages').textContent = messages?.length || 0;
+                document.getElementById('totalChats').textContent = chats?.length || 0;
+                document.getElementById('activeToday').textContent = activeUsers?.length || 0;
+                
+                // Populate users table
+                if (users) {
+                    const tbody = document.getElementById('usersTableBody');
+                    tbody.innerHTML = users.map(user => `
+                        <tr>
+                            <td>${user.full_name || 'N/A'}</td>
+                            <td>${user.email}</td>
+                            <td>${user.role || 'user'}</td>
+                            <td>${user.message_count || 0}</td>
+                            <td>${formatDate(user.created_at)}</td>
+                            <td>
+                                <button class="btn" onclick="toggleUserRole('${user.id}')">
+                                    ${user.role === 'admin' ? 'Remove Admin' : 'Make Admin'}
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+                
+                // Show dashboard
+                document.getElementById('chatArea').style.display = 'none';
+                document.getElementById('adminDashboard').style.display = 'block';
+            } catch (error) {
+                showToast('Error loading admin dashboard', 'error');
+            }
+        }
+
+        function closeAdminDashboard() {
+            document.getElementById('adminDashboard').style.display = 'none';
+            document.getElementById('chatArea').style.display = 'flex';
+        }
+
+        async function toggleUserRole(userId) {
+            if (!supabase) return;
+            
+            try {
+                const { data: user } = await supabase
+                    .from('profiles')
+                    .select('role')
+                    .eq('id', userId)
+                    .single();
+                
+                const newRole = user?.role === 'admin' ? 'user' : 'admin';
+                
+                await supabase
+                    .from('profiles')
+                    .update({ role: newRole })
+                    .eq('id', userId);
+                
+                showToast(`User role updated to ${newRole}`, 'success');
+                await openAdminDashboard();
+            } catch (error) {
+                showToast('Error updating user role', 'error');
+            }
+        }
+
+        // ============================================
+        // Modal Functions
+        // ============================================
+        function openAuthModal(mode) {
+            const modal = document.getElementById('authModal');
+            const title = document.getElementById('authTitle');
+            const subtitle = document.getElementById('authSubtitle');
+            const submitText = document.getElementById('authSubmitText');
+            const nameGroup = document.getElementById('nameGroup');
+            const toggleText = document.getElementById('authToggleText');
+            
+            if (mode === 'login') {
+                title.textContent = 'LOGIN';
+                subtitle.textContent = 'Access the system';
+                submitText.textContent = 'LOGIN';
+                nameGroup.style.display = 'none';
+                toggleText.innerHTML = "Don't have an account? <a href='#' id='authToggleLink' style='color: var(--primary);'>Sign up</a>";
+            } else {
+                title.textContent = 'SIGN UP';
+                subtitle.textContent = 'Create your account';
+                submitText.textContent = 'SIGN UP';
+                nameGroup.style.display = 'block';
+                toggleText.innerHTML = "Already have an account? <a href='#' id='authToggleLink' style='color: var(--primary);'>Login</a>";
+            }
+            
+            modal.classList.add('active');
+            document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').classList.remove('active');
+            document.getElementById('authForm').reset();
+        }
+
+        function toggleAuthMode(e) {
+            e.preventDefault();
+            const currentMode = document.getElementById('authTitle').textContent === 'LOGIN' ? 'signup' : 'login';
+            openAuthModal(currentMode);
+        }
+
+        function openProfileModal() {
+            document.getElementById('profileModal').classList.add('active');
+        }
+
+        function closeProfileModal() {
+            document.getElementById('profileModal').classList.remove('active');
+        }
+
+        // ============================================
+        // Utility Functions
+        // ============================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                <span>${message}</span>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideOutRight 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric' 
+            });
+        }
+
+        @keyframes slideOutRight {
+            to {
+                transform: translateX(120%);
+                opacity: 0;
+            }
+        }
+
+        // Make functions available globally
+        window.toggleUserRole = toggleUserRole;
+        window.loadChat = loadChat;
+    </script>
+
+    <!-- Netlify Identity Widget (Optional for OAuth) -->
+    <script>
+        // This script will be replaced by Netlify's environment injection
+        if (window.location.hostname.includes('netlify.app') || window.location.hostname.includes('0xhitek.com')) {
+            // Inject environment variables from Netlify
+            window.SUPABASE_URL = '{{SUPABASE_URL}}';
+            window.SUPABASE_ANON_KEY = '{{SUPABASE_ANON_KEY}}';
+            window.OPENROUTER_API_KEY = '{{OPENROUTER_API_KEY}}';
+        }
+    </script>
+</body>
+</html> <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
