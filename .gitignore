@@ -1,1 +1,18 @@
+# Environment Variables - NEVER commit these!
+.env
+.env.local
+.env.production
 
+# Dependencies
+node_modules/
+
+# Netlify
+.netlify/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
