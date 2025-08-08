@@ -131,6 +131,48 @@
             50% { opacity: 0.5; }
         }
 
+            /* Enhanced Model Selector */
+        .model-select {
+            padding: 0.5rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            max-width: 300px;
+            font-size: 0.9rem;
+        }
+    
+        .model-select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+    
+        .model-select optgroup {
+            background: var(--bg-medium);
+            color: var(--primary);
+            font-weight: bold;
+        }
+    
+        .model-select option {
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            padding: 0.25rem;
+        }
+    
+        .model-select option:hover {
+            background: var(--bg-card);
+        }
+    
+        /* Make it responsive */
+        @media (max-width: 768px) {
+            .model-select {
+                max-width: 200px;
+                font-size: 0.8rem;
+            }
+        }
+
         /* App Container */
         .app-container {
             display: flex;
@@ -915,19 +957,209 @@
 
             <!-- Chat Area -->
             <main class="chat-area" id="chatArea">
-                <!-- Chat Header -->
+                <!-- Chat Header with Complete Model List -->
                 <div class="chat-header">
                     <div class="model-selector">
                         <label for="modelSelect">
                             <i class="fas fa-robot"></i> Model:
                         </label>
                         <select id="modelSelect" class="model-select">
-                            <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                            <option value="openai/gpt-4">GPT-4</option>
-                            <option value="anthropic/claude-2">Claude 2</option>
-                            <option value="anthropic/claude-instant-v1">Claude Instant</option>
-                            <option value="google/palm-2-chat-bison">PaLM 2</option>
-                            <option value="meta-llama/llama-2-70b-chat">Llama 2 70B</option>
+                            <!-- OpenAI Models -->
+                            <optgroup label="OpenAI">
+                                <option value="openai/gpt-4-turbo-preview">GPT-4 Turbo Preview (128k)</option>
+                                <option value="openai/gpt-4-turbo">GPT-4 Turbo</option>
+                                <option value="openai/gpt-4">GPT-4</option>
+                                <option value="openai/gpt-4-32k">GPT-4 32k</option>
+                                <option value="openai/gpt-3.5-turbo" selected>GPT-3.5 Turbo</option>
+                                <option value="openai/gpt-3.5-turbo-16k">GPT-3.5 Turbo 16k</option>
+                                <option value="openai/gpt-3.5-turbo-1106">GPT-3.5 Turbo 1106</option>
+                                <option value="openai/gpt-3.5-turbo-0125">GPT-3.5 Turbo 0125</option>
+                            </optgroup>
+                
+                            <!-- Anthropic Claude Models -->
+                            <optgroup label="Anthropic">
+                                <option value="anthropic/claude-3-opus">Claude 3 Opus</option>
+                                <option value="anthropic/claude-3-sonnet">Claude 3 Sonnet</option>
+                                <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                                <option value="anthropic/claude-2.1">Claude 2.1</option>
+                                <option value="anthropic/claude-2">Claude 2</option>
+                                <option value="anthropic/claude-instant-v1">Claude Instant v1</option>
+                                <option value="anthropic/claude-instant-1.2">Claude Instant 1.2</option>
+                            </optgroup>
+                
+                            <!-- Google Models -->
+                            <optgroup label="Google">
+                                <option value="google/gemini-pro">Gemini Pro</option>
+                                <option value="google/gemini-pro-vision">Gemini Pro Vision</option>
+                                <option value="google/gemini-pro-1.5">Gemini Pro 1.5</option>
+                                <option value="google/palm-2-chat-bison">PaLM 2 Chat Bison</option>
+                                <option value="google/palm-2-codechat-bison">PaLM 2 Code Chat</option>
+                                <option value="google/palm-2-chat-bison-32k">PaLM 2 Chat Bison 32k</option>
+                            </optgroup>
+                
+                            <!-- Meta Llama Models -->
+                            <optgroup label="Meta Llama">
+                                <option value="meta-llama/llama-2-70b-chat">Llama 2 70B Chat</option>
+                                <option value="meta-llama/llama-2-13b-chat">Llama 2 13B Chat</option>
+                                <option value="meta-llama/llama-2-7b-chat">Llama 2 7B Chat</option>
+                                <option value="meta-llama/codellama-34b-instruct">CodeLlama 34B Instruct</option>
+                                <option value="meta-llama/codellama-70b-instruct">CodeLlama 70B Instruct</option>
+                                <option value="meta-llama/llama-3-8b-instruct">Llama 3 8B Instruct</option>
+                                <option value="meta-llama/llama-3-70b-instruct">Llama 3 70B Instruct</option>
+                            </optgroup>
+                
+                            <!-- Mistral AI Models -->
+                            <optgroup label="Mistral AI">
+                                <option value="mistralai/mistral-7b-instruct">Mistral 7B Instruct</option>
+                                <option value="mistralai/mixtral-8x7b-instruct">Mixtral 8x7B Instruct</option>
+                                <option value="mistralai/mixtral-8x22b-instruct">Mixtral 8x22B Instruct</option>
+                                <option value="mistralai/mistral-tiny">Mistral Tiny</option>
+                                <option value="mistralai/mistral-small">Mistral Small</option>
+                                <option value="mistralai/mistral-medium">Mistral Medium</option>
+                                <option value="mistralai/mistral-large">Mistral Large</option>
+                            </optgroup>
+                
+                            <!-- Perplexity Models -->
+                            <optgroup label="Perplexity">
+                                <option value="perplexity/pplx-7b-chat">Perplexity 7B Chat</option>
+                                <option value="perplexity/pplx-70b-chat">Perplexity 70B Chat</option>
+                                <option value="perplexity/pplx-7b-online">Perplexity 7B Online</option>
+                                <option value="perplexity/pplx-70b-online">Perplexity 70B Online</option>
+                                <option value="perplexity/sonar-small-chat">Sonar Small Chat</option>
+                                <option value="perplexity/sonar-medium-chat">Sonar Medium Chat</option>
+                                <option value="perplexity/sonar-small-online">Sonar Small Online</option>
+                                <option value="perplexity/sonar-medium-online">Sonar Medium Online</option>
+                            </optgroup>
+                
+                            <!-- Cohere Models -->
+                            <optgroup label="Cohere">
+                                <option value="cohere/command">Command</option>
+                                <option value="cohere/command-light">Command Light</option>
+                                <option value="cohere/command-r">Command R</option>
+                                <option value="cohere/command-r-plus">Command R Plus</option>
+                            </optgroup>
+                
+                            <!-- Together AI Models -->
+                            <optgroup label="Together AI">
+                                <option value="togethercomputer/llama-2-7b-chat">Together Llama 2 7B</option>
+                                <option value="togethercomputer/llama-2-13b-chat">Together Llama 2 13B</option>
+                                <option value="togethercomputer/llama-2-70b-chat">Together Llama 2 70B</option>
+                                <option value="togethercomputer/alpaca-7b">Alpaca 7B</option>
+                                <option value="togethercomputer/falcon-7b-instruct">Falcon 7B Instruct</option>
+                                <option value="togethercomputer/falcon-40b-instruct">Falcon 40B Instruct</option>
+                            </optgroup>
+                
+                            <!-- NousResearch Models -->
+                            <optgroup label="NousResearch">
+                                <option value="nousresearch/nous-hermes-2-mixtral-8x7b-dpo">Nous Hermes 2 Mixtral 8x7B</option>
+                                <option value="nousresearch/nous-hermes-2-mistral-7b-dpo">Nous Hermes 2 Mistral 7B</option>
+                                <option value="nousresearch/nous-hermes-llama2-13b">Nous Hermes Llama2 13B</option>
+                                <option value="nousresearch/nous-capybara-7b">Nous Capybara 7B</option>
+                                <option value="nousresearch/nous-capybara-34b">Nous Capybara 34B</option>
+                            </optgroup>
+                
+                            <!-- OpenChat Models -->
+                            <optgroup label="OpenChat">
+                                <option value="openchat/openchat-7b">OpenChat 7B</option>
+                                <option value="openchat/openchat-3.5">OpenChat 3.5</option>
+                                <option value="openchat/openchat-3.5-1210">OpenChat 3.5 1210</option>
+                            </optgroup>
+                
+                            <!-- Phind Models -->
+                            <optgroup label="Phind">
+                                <option value="phind/phind-codellama-34b">Phind CodeLlama 34B</option>
+                                <option value="phind/phind-codellama-34b-v2">Phind CodeLlama 34B v2</option>
+                            </optgroup>
+                
+                            <!-- WizardLM Models -->
+                            <optgroup label="WizardLM">
+                                <option value="wizardlm/wizardlm-7b">WizardLM 7B</option>
+                                <option value="wizardlm/wizardlm-13b">WizardLM 13B</option>
+                                <option value="wizardlm/wizardlm-70b">WizardLM 70B</option>
+                                <option value="wizardlm/wizardcoder-15b">WizardCoder 15B</option>
+                                <option value="wizardlm/wizardcoder-34b">WizardCoder 34B</option>
+                            </optgroup>
+                
+                            <!-- Teknium Models -->
+                            <optgroup label="Teknium">
+                                <option value="teknium/openhermes-2-mistral-7b">OpenHermes 2 Mistral 7B</option>
+                                <option value="teknium/openhermes-2.5-mistral-7b">OpenHermes 2.5 Mistral 7B</option>
+                            </optgroup>
+                
+                            <!-- Undi95 Models -->
+                            <optgroup label="Undi95">
+                                <option value="undi95/toppy-m-7b">Toppy M 7B</option>
+                                <option value="undi95/remm-slerp-l2-13b">ReMM SLERP L2 13B</option>
+                            </optgroup>
+                
+                            <!-- Gryphe Models -->
+                            <optgroup label="Gryphe">
+                                <option value="gryphe/mythomax-l2-13b">MythoMax L2 13B</option>
+                                <option value="gryphe/mythomist-7b">MythoMist 7B</option>
+                            </optgroup>
+                
+                            <!-- DeepSeek Models -->
+                            <optgroup label="DeepSeek">
+                                <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+                                <option value="deepseek/deepseek-coder">DeepSeek Coder</option>
+                            </optgroup>
+                
+                            <!-- Qwen Models -->
+                            <optgroup label="Qwen">
+                                <option value="qwen/qwen-7b-chat">Qwen 7B Chat</option>
+                                <option value="qwen/qwen-14b-chat">Qwen 14B Chat</option>
+                                <option value="qwen/qwen-72b-chat">Qwen 72B Chat</option>
+                                <option value="qwen/qwen-1.5-7b-chat">Qwen 1.5 7B Chat</option>
+                                <option value="qwen/qwen-1.5-14b-chat">Qwen 1.5 14B Chat</option>
+                                <option value="qwen/qwen-1.5-72b-chat">Qwen 1.5 72B Chat</option>
+                            </optgroup>
+                
+                            <!-- Yi Models -->
+                            <optgroup label="Yi">
+                                <option value="01-ai/yi-6b-chat">Yi 6B Chat</option>
+                                <option value="01-ai/yi-34b-chat">Yi 34B Chat</option>
+                            </optgroup>
+                
+                            <!-- Pygmalion Models -->
+                            <optgroup label="Pygmalion">
+                                <option value="pygmalionai/mythalion-13b">Mythalion 13B</option>
+                            </optgroup>
+                
+                            <!-- Kobold Models -->
+                            <optgroup label="Kobold">
+                                <option value="koboldai/psyfighter-13b">Psyfighter 13B</option>
+                                <option value="koboldai/psyfighter-13b-2">Psyfighter 13B 2</option>
+                            </optgroup>
+                
+                            <!-- Intel Models -->
+                            <optgroup label="Intel">
+                                <option value="intel/neural-chat-7b">Neural Chat 7B</option>
+                            </optgroup>
+                
+                            <!-- Hugging Face Models -->
+                            <optgroup label="HuggingFace">
+                                <option value="huggingfaceh4/zephyr-7b-beta">Zephyr 7B Beta</option>
+                                <option value="huggingfaceh4/zephyr-7b-alpha">Zephyr 7B Alpha</option>
+                            </optgroup>
+                
+                            <!-- Other/Specialized Models -->
+                            <optgroup label="Specialized">
+                                <option value="jondurbin/airoboros-l2-70b">Airoboros L2 70B</option>
+                                <option value="jondurbin/bagel-34b">Bagel 34B</option>
+                                <option value="austism/chronos-hermes-13b">Chronos Hermes 13B</option>
+                                <option value="lizpreciatior/lzlv-70b-fp16-hf">LZLV 70B</option>
+                                <option value="cognitivecomputations/dolphin-mixtral-8x7b">Dolphin Mixtral 8x7B</option>
+                                <option value="recursal/rwkv-5-3b-ai-town">RWKV 5 3B AI Town</option>
+                                <option value="recursal/eagle-7b">Eagle 7B</option>
+                            </optgroup>
+                
+                            <!-- Free/Open Models -->
+                            <optgroup label="Free Models">
+                                <option value="gryphe/mythomist-7b:free">MythoMist 7B (Free)</option>
+                                <option value="undi95/toppy-m-7b:free">Toppy M 7B (Free)</option>
+                                <option value="openchat/openchat-7b:free">OpenChat 7B (Free)</option>
+                                <option value="nousresearch/nous-capybara-7b:free">Nous Capybara 7B (Free)</option>
+                            </optgroup>
                         </select>
                     </div>
                     
@@ -1347,6 +1579,61 @@
 
             setupEventListeners();
         });
+
+            function addModelSearch() {
+                const modelSelect = document.getElementById('modelSelect');
+                
+                // Create search input
+                const searchInput = document.createElement('input');
+                searchInput.type = 'text';
+                searchInput.placeholder = 'Search models...';
+                searchInput.className = 'model-search';
+                searchInput.style.cssText = `
+                    padding: 0.5rem;
+                    margin-bottom: 0.5rem;
+                    background: var(--bg-dark);
+                    border: 1px solid var(--border);
+                    color: var(--text-primary);
+                    font-family: 'Courier New', monospace;
+                    width: 100%;
+                `;
+                
+                // Insert search before select
+                modelSelect.parentNode.insertBefore(searchInput, modelSelect);
+                
+                // Store all options
+                const allOptions = Array.from(modelSelect.querySelectorAll('option'));
+                const optgroups = Array.from(modelSelect.querySelectorAll('optgroup'));
+                
+                // Search function
+                searchInput.addEventListener('input', (e) => {
+                    const searchTerm = e.target.value.toLowerCase();
+                    
+                    if (searchTerm === '') {
+                        // Show all
+                        optgroups.forEach(group => group.style.display = '');
+                        allOptions.forEach(option => option.style.display = '');
+                    } else {
+                        // Filter options
+                        optgroups.forEach(group => {
+                            const visibleOptions = Array.from(group.querySelectorAll('option')).filter(option => {
+                                const matches = option.text.toLowerCase().includes(searchTerm) || 
+                                              option.value.toLowerCase().includes(searchTerm);
+                                option.style.display = matches ? '' : 'none';
+                                return matches;
+                            });
+                            
+                            // Hide optgroup if no visible options
+                            group.style.display = visibleOptions.length > 0 ? '' : 'none';
+                        });
+                    }
+                });
+            }
+            
+            // Call this after page loads
+            document.addEventListener('DOMContentLoaded', () => {
+                // addModelSearch(); // Uncomment to enable search
+            });
 
         // ============================================
         // Event Listeners
