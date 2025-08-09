@@ -1,12 +1,25 @@
 // ============================================
 // app.js - Complete Application Logic
+// 0xHiTek Chat Application
 // ============================================
 
-// Initialize Supabase client
-const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+// ============================================
+// Environment Configuration (Secure)
+// ============================================
+const ENV = {
+    SUPABASE_URL: '', // Will be set from Netlify environment
+    SUPABASE_ANON_KEY: '', // Will be set from Netlify environment
+    OPENROUTER_API_KEY: '', // Will be set from Netlify environment
+    ADMIN_EMAIL: 'admin@0xhitek.com'
+};
 
 // ============================================
-// State Management Class
+// Initialize Supabase Client
+// ============================================
+let supabase = null;
+
+// ============================================
+// State Management
 // ============================================
 class AppState {
     constructor() {
@@ -15,12 +28,10 @@ class AppState {
         this.messages = [];
         this.chats = [];
         this.settings = {
-            openrouterKey: CONFIG.OPENROUTER_API_KEY,
-            maxTokens: CONFIG.DEFAULT_MAX_TOKENS,
-            temperature: CONFIG.DEFAULT_TEMPERATURE,
-            selectedModel: CONFIG.DEFAULT_MODEL,
-            showTimestamps: true,
-            enableSounds: true
+            openrouterKey: '',
+            maxTokens: 1000,
+            temperature: 0.7,
+            selectedModel: 'openai/gpt-3.5-turbo'
         };
         this.tokenCount = 0;
         this.isProcessing = false;
@@ -46,7 +57,6 @@ class AppState {
         };
 
         if (this.user) {
-            // User is logged in
             elements.loginBtn.style.display = 'none';
             elements.signupBtn.style.display = 'none';
             elements.logoutBtn.style.display = 'block';
@@ -55,12 +65,10 @@ class AppState {
             elements.userEmail.textContent = this.user.email;
             elements.sendBtn.disabled = false;
 
-            // Check if admin
-            if (this.user.email === CONFIG.ADMIN_EMAIL || this.user.role === 'admin') {
+            if (this.user.email === ENV.ADMIN_EMAIL || this.user.role === 'admin') {
                 elements.adminBtn.style.display = 'block';
             }
         } else {
-            // User is logged out
             elements.loginBtn.style.display = 'block';
             elements.signupBtn.style.display = 'block';
             elements.logoutBtn.style.display = 'none';
@@ -77,16 +85,15 @@ class AppState {
         }
         
         this.keepAliveInterval = setInterval(async () => {
-            if (this.user && !this.isProcessing) {
+            if (this.user && !this.isProcessing && supabase) {
                 try {
-                    // Simple ping to keep connection alive
                     await supabase.from('profiles').select('id').eq('id', this.user.id).limit(1).single();
                     this.lastActivity = Date.now();
                 } catch (error) {
                     console.log('Keep-alive ping');
                 }
             }
-        }, CONFIG.KEEP_ALIVE_INTERVAL);
+        }, 20000); // 20 seconds
     }
 
     stopKeepAlive() {
@@ -105,49 +112,390 @@ class AppState {
     }
 }
 
-// Global state instance
 const appState = new AppState();
+
+// ============================================
+// Model Selector Class with Search
+// ============================================
+class ModelSelector {
+    constructor() {
+        this.models = [];
+        this.filteredModels = [];
+        this.selectedModel = 'openai/gpt-3.5-turbo';
+        this.isLoaded = false;
+        this.isDropdownOpen = false;
+        
+        this.searchInput = document.getElementById('modelSearch');
+        this.searchClear = document.getElementById('modelSearchClear');
+        this.dropdown = document.getElementById('modelDropdown');
+    }
+
+    init() {
+        // Set initial value
+        this.searchInput.value = this.getModelDisplayName(this.selectedModel);
+        
+        // Event listeners
+        this.searchInput.addEventListener('focus', () => this.handleFocus());
+        this.searchInput.addEventListener('input', (e) => this.handleSearch(e.target.value));
+        this.searchInput.addEventListener('blur', (e) => this.handleBlur(e));
+        this.searchClear.addEventListener('click', () => this.clearSearch());
+        
+        // Click outside to close
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.model-search-wrapper')) {
+                this.closeDropdown();
+            }
+        });
+    }
+
+    async handleFocus() {
+        this.openDropdown();
+        
+        if (!this.isLoaded) {
+            await this.loadModels();
+        } else {
+            this.renderModels(this.filteredModels.length > 0 ? this.filteredModels : this.models);
+        }
+        
+        // Select all text for easy search
+        this.searchInput.select();
+    }
+
+    handleBlur(e) {
+        // Delay to allow click on dropdown items
+        setTimeout(() => {
+            if (!this.dropdown.contains(document.activeElement)) {
+                // Restore selected model name if search is empty
+                if (!this.searchInput.value) {
+                    this.searchInput.value = this.getModelDisplayName(this.selectedModel);
+                }
+            }
+        }, 200);
+    }
+
+    async loadModels() {
+        this.dropdown.innerHTML = `
+            <div class="model-loading">
+                <div class="model-loading-spinner"></div>
+                <p>Loading all models...</p>
+            </div>
+        `;
+
+        try {
+            // First try to load from OpenRouter API
+            const models = await this.fetchModelsFromAPI();
+            
+            if (models.length === 0) {
+                // Fallback to hardcoded comprehensive list
+                this.models = this.getHardcodedModels();
+            } else {
+                this.models = models;
+            }
+            
+            this.isLoaded = true;
+            this.filteredModels = this.models;
+            this.renderModels(this.models);
+            
+        } catch (error) {
+            console.error('Error loading models:', error);
+            // Use hardcoded list as fallback
+            this.models = this.getHardcodedModels();
+            this.isLoaded = true;
+            this.filteredModels = this.models;
+            this.renderModels(this.models);
+        }
+    }
+
+    async fetchModelsFromAPI() {
+        try {
+            const apiKey = appState.settings.openrouterKey || ENV.OPENROUTER_API_KEY || '';
+            
+            if (!apiKey) {
+                console.log('No API key available, using hardcoded models');
+                return [];
+            }
+
+            const response = await fetch('https://openrouter.ai/api/v1/models', {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'HTTP-Referer': window.location.origin,
+                    'X-Title': '0xHiTek Chat'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch models');
+            }
+
+            const data = await response.json();
+            
+            // Process and format models
+            return data.data.map(model => ({
+                id: model.id,
+                name: model.name || this.formatModelName(model.id),
+                provider: model.id.split('/')[0],
+                context: model.context_length || 'N/A',
+                pricing: {
+                    prompt: model.pricing?.prompt || 0,
+                    completion: model.pricing?.completion || 0
+                },
+                description: model.description || ''
+            })).sort((a, b) => {
+                // Sort by provider, then by name
+                if (a.provider !== b.provider) {
+                    return a.provider.localeCompare(b.provider);
+                }
+                return a.name.localeCompare(b.name);
+            });
+            
+        } catch (error) {
+            console.error('API fetch error:', error);
+            return [];
+        }
+    }
+
+    getHardcodedModels() {
+        // Comprehensive list of all OpenRouter models
+        return [
+            // OpenAI Models
+            { id: 'openai/gpt-4-turbo-preview', name: 'GPT-4 Turbo Preview', provider: 'openai', context: '128000', pricing: { prompt: 0.01, completion: 0.03 } },
+            { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', context: '128000', pricing: { prompt: 0.01, completion: 0.03 } },
+            { id: 'openai/gpt-4', name: 'GPT-4', provider: 'openai', context: '8192', pricing: { prompt: 0.03, completion: 0.06 } },
+            { id: 'openai/gpt-4-32k', name: 'GPT-4 32k', provider: 'openai', context: '32768', pricing: { prompt: 0.06, completion: 0.12 } },
+            { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'openai', context: '16385', pricing: { prompt: 0.0005, completion: 0.0015 } },
+            { id: 'openai/gpt-3.5-turbo-16k', name: 'GPT-3.5 Turbo 16k', provider: 'openai', context: '16385', pricing: { prompt: 0.003, completion: 0.004 } },
+            
+            // Anthropic Claude Models
+            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', provider: 'anthropic', context: '200000', pricing: { prompt: 0.015, completion: 0.075 } },
+            { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'anthropic', context: '200000', pricing: { prompt: 0.003, completion: 0.015 } },
+            { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', provider: 'anthropic', context: '200000', pricing: { prompt: 0.00025, completion: 0.00125 } },
+            { id: 'anthropic/claude-2.1', name: 'Claude 2.1', provider: 'anthropic', context: '200000', pricing: { prompt: 0.008, completion: 0.024 } },
+            { id: 'anthropic/claude-2', name: 'Claude 2', provider: 'anthropic', context: '100000', pricing: { prompt: 0.008, completion: 0.024 } },
+            { id: 'anthropic/claude-instant-v1', name: 'Claude Instant v1', provider: 'anthropic', context: '100000', pricing: { prompt: 0.0008, completion: 0.0024 } },
+            
+            // Google Models
+            { id: 'google/gemini-pro', name: 'Gemini Pro', provider: 'google', context: '32760', pricing: { prompt: 0.000125, completion: 0.000375 } },
+            { id: 'google/gemini-pro-vision', name: 'Gemini Pro Vision', provider: 'google', context: '32760', pricing: { prompt: 0.000125, completion: 0.000375 } },
+            { id: 'google/palm-2-chat-bison', name: 'PaLM 2 Chat', provider: 'google', context: '8192', pricing: { prompt: 0.00025, completion: 0.0005 } },
+            
+            // Meta Llama Models
+            { id: 'meta-llama/llama-3-70b-instruct', name: 'Llama 3 70B', provider: 'meta-llama', context: '8192', pricing: { prompt: 0.00059, completion: 0.00079 } },
+            { id: 'meta-llama/llama-3-8b-instruct', name: 'Llama 3 8B', provider: 'meta-llama', context: '8192', pricing: { prompt: 0.00006, completion: 0.00006 } },
+            { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B', provider: 'meta-llama', context: '4096', pricing: { prompt: 0.0007, completion: 0.0009 } },
+            { id: 'meta-llama/llama-2-13b-chat', name: 'Llama 2 13B', provider: 'meta-llama', context: '4096', pricing: { prompt: 0.00027, completion: 0.00027 } },
+            
+            // Mistral Models
+            { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B', provider: 'mistralai', context: '32768', pricing: { prompt: 0.00006, completion: 0.00006 } },
+            { id: 'mistralai/mixtral-8x7b-instruct', name: 'Mixtral 8x7B', provider: 'mistralai', context: '32768', pricing: { prompt: 0.00024, completion: 0.00024 } },
+            { id: 'mistralai/mixtral-8x22b-instruct', name: 'Mixtral 8x22B', provider: 'mistralai', context: '65536', pricing: { prompt: 0.00108, completion: 0.00108 } },
+            
+            // Add more models as needed...
+        ];
+    }
+
+    handleSearch(searchTerm) {
+        if (searchTerm) {
+            this.searchClear.style.display = 'block';
+        } else {
+            this.searchClear.style.display = 'none';
+        }
+
+        searchTerm = searchTerm.toLowerCase();
+        
+        if (searchTerm === '') {
+            this.filteredModels = this.models;
+        } else {
+            this.filteredModels = this.models.filter(model => 
+                model.name.toLowerCase().includes(searchTerm) ||
+                model.id.toLowerCase().includes(searchTerm) ||
+                model.provider.toLowerCase().includes(searchTerm)
+            );
+        }
+        
+        this.renderModels(this.filteredModels);
+    }
+
+    clearSearch() {
+        this.searchInput.value = '';
+        this.searchClear.style.display = 'none';
+        this.filteredModels = this.models;
+        this.renderModels(this.models);
+        this.searchInput.focus();
+    }
+
+    renderModels(models) {
+        if (models.length === 0) {
+            this.dropdown.innerHTML = '<div class="no-models">No models found</div>';
+            return;
+        }
+
+        // Group models by provider
+        const grouped = {};
+        models.forEach(model => {
+            if (!grouped[model.provider]) {
+                grouped[model.provider] = [];
+            }
+            grouped[model.provider].push(model);
+        });
+
+        let html = '';
+        
+        Object.keys(grouped).sort().forEach(provider => {
+            html += `
+                <div class="model-group">
+                    <div class="model-group-header">${provider}</div>
+            `;
+            
+            grouped[provider].forEach(model => {
+                const isSelected = model.id === this.selectedModel;
+                const priceClass = model.pricing.prompt === 0 ? 'free' : '';
+                const price = model.pricing.prompt === 0 ? 'FREE' : `$${model.pricing.prompt}/1K`;
+                
+                html += `
+                    <div class="model-item ${isSelected ? 'selected' : ''}" 
+                         data-model-id="${model.id}"
+                         onclick="modelSelector.selectModel('${model.id}')">
+                        <span class="model-name">${model.name}</span>
+                        <div class="model-info">
+                            <span class="model-context">${this.formatContext(model.context)}</span>
+                            <span class="model-price ${priceClass}">${price}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+        });
+
+        html += `
+            <div class="model-stats">
+                ${models.length} models available
+            </div>
+        `;
+
+        this.dropdown.innerHTML = html;
+    }
+
+    selectModel(modelId) {
+        this.selectedModel = modelId;
+        appState.settings.selectedModel = modelId;
+        this.searchInput.value = this.getModelDisplayName(modelId);
+        this.closeDropdown();
+        
+        // Clear search
+        this.searchClear.style.display = 'none';
+        this.filteredModels = this.models;
+        
+        // Save to profile if logged in
+        if (appState.user && supabase) {
+            this.saveModelPreference();
+        }
+    }
+
+    async saveModelPreference() {
+        try {
+            await supabase
+                .from('profiles')
+                .update({ 
+                    settings: { 
+                        ...appState.settings,
+                        selectedModel: this.selectedModel 
+                    } 
+                })
+                .eq('id', appState.user.id);
+        } catch (error) {
+            console.error('Error saving model preference:', error);
+        }
+    }
+
+    getModelDisplayName(modelId) {
+        const model = this.models.find(m => m.id === modelId);
+        return model ? model.name : modelId.split('/')[1] || modelId;
+    }
+
+    formatModelName(modelId) {
+        const parts = modelId.split('/');
+        const name = parts[1] || modelId;
+        return name.split('-').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+    }
+
+    formatContext(context) {
+        if (context === 'N/A') return context;
+        const num = parseInt(context);
+        if (num >= 1000000) {
+            return `${(num / 1000000).toFixed(1)}M`;
+        } else if (num >= 1000) {
+            return `${(num / 1000).toFixed(0)}K`;
+        }
+        return context;
+    }
+
+    openDropdown() {
+        this.dropdown.classList.add('active');
+        this.isDropdownOpen = true;
+    }
+
+    closeDropdown() {
+        this.dropdown.classList.remove('active');
+        this.isDropdownOpen = false;
+    }
+}
+
+let modelSelector;
 
 // ============================================
 // Initialization
 // ============================================
 document.addEventListener('DOMContentLoaded', async () => {
-    // Hide loading screen after a short delay
-    setTimeout(() => {
+    // Initialize model selector
+    modelSelector = new ModelSelector();
+    modelSelector.init();
+
+    // Wait for environment variables to be injected
+    setTimeout(async () => {
+        // Try to initialize Supabase
+        if (typeof window.supabase !== 'undefined' && ENV.SUPABASE_URL && ENV.SUPABASE_ANON_KEY) {
+            supabase = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY);
+            
+            // Check for existing session
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                appState.setUser(session.user);
+                await loadUserProfile();
+                await loadChatHistory();
+                appState.startKeepAlive();
+            }
+
+            // Setup auth state listener
+            supabase.auth.onAuthStateChange(async (event, session) => {
+                if (session) {
+                    appState.setUser(session.user);
+                    await loadUserProfile();
+                    await loadChatHistory();
+                    appState.startKeepAlive();
+                } else {
+                    appState.setUser(null);
+                    appState.stopKeepAlive();
+                }
+            });
+        }
+
+        // Hide loading screen
         document.getElementById('loadingScreen').style.display = 'none';
         document.getElementById('app').style.display = 'flex';
+
+        if (!supabase) {
+            showToast('Please configure environment variables in Netlify', 'warning');
+        }
     }, 1500);
 
-    // Check for existing session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-        appState.setUser(session.user);
-        await loadUserProfile();
-        await loadChatHistory();
-        appState.startKeepAlive();
-    }
-
-    // Setup auth state listener
-    supabase.auth.onAuthStateChange(async (event, session) => {
-        if (session) {
-            appState.setUser(session.user);
-            await loadUserProfile();
-            await loadChatHistory();
-            appState.startKeepAlive();
-        } else {
-            appState.setUser(null);
-            appState.stopKeepAlive();
-            clearChatDisplay();
-        }
-    });
-
-    // Initialize UI components
-    initializeModels();
     setupEventListeners();
 });
 
 // ============================================
-// Event Listeners Setup
+// Event Listeners
 // ============================================
 function setupEventListeners() {
     // Auth buttons
@@ -158,7 +506,10 @@ function setupEventListeners() {
     // Profile & Admin
     document.getElementById('profileBtn').addEventListener('click', openProfileModal);
     document.getElementById('adminBtn').addEventListener('click', openAdminDashboard);
-    document.getElementById('closeAdminBtn')?.addEventListener('click', closeAdminDashboard);
+    const closeAdminBtn = document.getElementById('closeAdminBtn');
+    if (closeAdminBtn) {
+        closeAdminBtn.addEventListener('click', closeAdminDashboard);
+    }
     
     // Chat controls
     document.getElementById('newChatBtn').addEventListener('click', createNewChat);
@@ -173,18 +524,9 @@ function setupEventListeners() {
         }
     });
     
-    // Auto-resize textarea
     messageInput.addEventListener('input', () => {
         messageInput.style.height = 'auto';
         messageInput.style.height = messageInput.scrollHeight + 'px';
-    });
-    
-    // Model selector
-    document.getElementById('modelSelect').addEventListener('change', (e) => {
-        appState.settings.selectedModel = e.target.value;
-        if (appState.user) {
-            saveUserSettings();
-        }
     });
     
     // Auth form
@@ -192,28 +534,9 @@ function setupEventListeners() {
     document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
     document.getElementById('closeAuthModal').addEventListener('click', closeAuthModal);
     
-    // OAuth buttons
-    document.getElementById('googleAuthBtn').addEventListener('click', () => handleOAuth('google'));
-    document.getElementById('githubAuthBtn').addEventListener('click', () => handleOAuth('github'));
-    
     // Profile form
     document.getElementById('profileForm').addEventListener('submit', handleProfileSubmit);
     document.getElementById('closeProfileModal').addEventListener('click', closeProfileModal);
-    
-    // Profile tabs
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-    });
-    
-    // Temperature slider
-    const tempSlider = document.getElementById('temperature');
-    const tempValue = document.getElementById('temperatureValue');
-    tempSlider.addEventListener('input', () => {
-        tempValue.textContent = tempSlider.value;
-    });
-    
-    // Admin settings
-    document.getElementById('saveSystemSettings')?.addEventListener('click', saveSystemSettings);
 }
 
 // ============================================
@@ -222,9 +545,14 @@ function setupEventListeners() {
 async function handleAuthSubmit(e) {
     e.preventDefault();
     
+    if (!supabase) {
+        showToast('Database not configured', 'error');
+        return;
+    }
+    
     const email = document.getElementById('authEmail').value;
     const password = document.getElementById('authPassword').value;
-    const isLogin = document.getElementById('authTitle').textContent === 'Login';
+    const isLogin = document.getElementById('authTitle').textContent === 'LOGIN';
     
     try {
         if (isLogin) {
@@ -249,19 +577,7 @@ async function handleAuthSubmit(e) {
             
             if (error) throw error;
             
-            // Create profile
-            if (data.user) {
-                await supabase.from('profiles').insert({
-                    id: data.user.id,
-                    email,
-                    full_name: fullName,
-                    openrouter_key: CONFIG.OPENROUTER_API_KEY,
-                    role: email === CONFIG.ADMIN_EMAIL ? 'admin' : 'user',
-                    settings: appState.settings
-                });
-            }
-            
-            showToast('Signup successful! Please check your email for verification.', 'success');
+            showToast('Signup successful! Please check your email.', 'success');
             closeAuthModal();
         }
     } catch (error) {
@@ -269,22 +585,9 @@ async function handleAuthSubmit(e) {
     }
 }
 
-async function handleOAuth(provider) {
-    try {
-        const { data, error } = await supabase.auth.signInWithOAuth({
-            provider: provider,
-            options: {
-                redirectTo: window.location.origin
-            }
-        });
-        
-        if (error) throw error;
-    } catch (error) {
-        showToast(`OAuth error: ${error.message}`, 'error');
-    }
-}
-
 async function handleLogout() {
+    if (!supabase) return;
+    
     try {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
@@ -292,7 +595,7 @@ async function handleLogout() {
         appState.user = null;
         appState.currentChatId = null;
         appState.messages = [];
-        appState.chats = [];
+        appState.stopKeepAlive();
         
         clearChatDisplay();
         showToast('Logged out successfully', 'success');
@@ -305,7 +608,7 @@ async function handleLogout() {
 // Profile Management
 // ============================================
 async function loadUserProfile() {
-    if (!appState.user) return;
+    if (!appState.user || !supabase) return;
     
     try {
         let { data, error } = await supabase
@@ -322,34 +625,35 @@ async function loadUserProfile() {
                     id: appState.user.id,
                     email: appState.user.email,
                     full_name: appState.user.user_metadata?.full_name || '',
-                    openrouter_key: CONFIG.OPENROUTER_API_KEY,
-                    role: appState.user.email === CONFIG.ADMIN_EMAIL ? 'admin' : 'user',
-                    settings: appState.settings
+                    openrouter_key: ENV.OPENROUTER_API_KEY || '',
+                    role: appState.user.email === ENV.ADMIN_EMAIL ? 'admin' : 'user'
                 })
                 .select()
                 .single();
             
-            if (createError) throw createError;
-            data = newProfile;
+            if (!createError) {
+                data = newProfile;
+            }
         }
         
         if (data) {
-            // Update local settings
             if (data.openrouter_key) {
                 appState.settings.openrouterKey = data.openrouter_key;
             }
             if (data.settings) {
                 appState.settings = { ...appState.settings, ...data.settings };
+                // Update model selector
+                if (modelSelector && data.settings.selectedModel) {
+                    modelSelector.selectedModel = data.settings.selectedModel;
+                    modelSelector.searchInput.value = modelSelector.getModelDisplayName(data.settings.selectedModel);
+                }
             }
             
-            // Update UI
             document.getElementById('profileName').value = data.full_name || '';
             document.getElementById('profileEmail').value = data.email;
             document.getElementById('openrouterKey').value = data.openrouter_key || '';
             document.getElementById('maxTokens').value = appState.settings.maxTokens;
             document.getElementById('temperature').value = appState.settings.temperature;
-            document.getElementById('temperatureValue').textContent = appState.settings.temperature;
-            document.getElementById('modelSelect').value = appState.settings.selectedModel;
         }
     } catch (error) {
         console.error('Error loading profile:', error);
@@ -359,7 +663,7 @@ async function loadUserProfile() {
 async function handleProfileSubmit(e) {
     e.preventDefault();
     
-    if (!appState.user) return;
+    if (!appState.user || !supabase) return;
     
     try {
         const profileData = {
@@ -368,9 +672,7 @@ async function handleProfileSubmit(e) {
             settings: {
                 maxTokens: parseInt(document.getElementById('maxTokens').value),
                 temperature: parseFloat(document.getElementById('temperature').value),
-                selectedModel: document.getElementById('modelSelect').value,
-                showTimestamps: document.getElementById('showTimestamps').checked,
-                enableSounds: document.getElementById('enableSounds').checked
+                selectedModel: modelSelector.selectedModel
             }
         };
         
@@ -381,7 +683,6 @@ async function handleProfileSubmit(e) {
         
         if (error) throw error;
         
-        // Update local state
         appState.settings = { ...appState.settings, ...profileData.settings };
         appState.settings.openrouterKey = profileData.openrouter_key;
         
@@ -392,24 +693,11 @@ async function handleProfileSubmit(e) {
     }
 }
 
-async function saveUserSettings() {
-    if (!appState.user) return;
-    
-    try {
-        await supabase
-            .from('profiles')
-            .update({ settings: appState.settings })
-            .eq('id', appState.user.id);
-    } catch (error) {
-        console.error('Error saving settings:', error);
-    }
-}
-
 // ============================================
 // Chat Management
 // ============================================
 async function createNewChat() {
-    if (!appState.user) {
+    if (!appState.user || !supabase) {
         showToast('Please login to create a chat', 'warning');
         return;
     }
@@ -419,8 +707,7 @@ async function createNewChat() {
             .from('chats')
             .insert({
                 user_id: appState.user.id,
-                title: 'New Chat',
-                created_at: new Date().toISOString()
+                title: 'New Chat'
             })
             .select()
             .single();
@@ -431,18 +718,15 @@ async function createNewChat() {
         appState.messages = [];
         clearChatDisplay();
         await loadChatHistory();
-        
-        showToast('New chat created', 'success');
     } catch (error) {
         showToast('Error creating chat', 'error');
     }
 }
 
 async function loadChat(chatId) {
-    if (!appState.user) return;
+    if (!appState.user || !supabase) return;
     
     try {
-        // Load messages for this chat
         const { data: messages, error } = await supabase
             .from('messages')
             .select('*')
@@ -461,7 +745,7 @@ async function loadChat(chatId) {
 }
 
 async function loadChatHistory() {
-    if (!appState.user) return;
+    if (!appState.user || !supabase) return;
     
     try {
         const { data, error } = await supabase
@@ -469,7 +753,7 @@ async function loadChatHistory() {
             .select('*')
             .eq('user_id', appState.user.id)
             .order('created_at', { ascending: false })
-            .limit(CONFIG.CHAT_HISTORY_LIMIT);
+            .limit(20);
         
         if (error) throw error;
         
@@ -508,23 +792,6 @@ function updateChatHistoryUI() {
     });
 }
 
-async function updateChatTitle(message) {
-    if (!appState.currentChatId) return;
-    
-    try {
-        const title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
-        
-        await supabase
-            .from('chats')
-            .update({ title })
-            .eq('id', appState.currentChatId);
-        
-        await loadChatHistory();
-    } catch (error) {
-        console.error('Error updating chat title:', error);
-    }
-}
-
 // ============================================
 // Message Handling
 // ============================================
@@ -539,7 +806,7 @@ async function sendMessage() {
         return;
     }
     
-    // Check connection staleness
+    // Check connection
     if (appState.isConnectionStale()) {
         await refreshConnection();
     }
@@ -547,116 +814,89 @@ async function sendMessage() {
     appState.isProcessing = true;
     appState.updateActivity();
     
+    // Show processing message
+    document.getElementById('processingMsg').style.display = 'block';
+    
     try {
-        // Create chat if none exists
         if (!appState.currentChatId) {
             await createNewChat();
         }
         
-        // Clear input immediately
         messageInput.value = '';
         messageInput.style.height = 'auto';
         
-        // Display user message
         displayMessage('user', message);
         
-        // Save user message to database
-        const { data: userMessage, error: msgError } = await supabase
-            .from('messages')
-            .insert({
-                chat_id: appState.currentChatId,
-                user_id: appState.user.id,
-                role: 'user',
-                content: message,
-                created_at: new Date().toISOString()
-            })
-            .select()
-            .single();
+        // Save user message
+        if (supabase) {
+            const { data: userMessage } = await supabase
+                .from('messages')
+                .insert({
+                    chat_id: appState.currentChatId,
+                    user_id: appState.user.id,
+                    role: 'user',
+                    content: message,
+                    model: modelSelector.selectedModel
+                })
+                .select()
+                .single();
+            
+            if (userMessage) {
+                appState.messages.push(userMessage);
+            }
+        }
         
-        if (msgError) throw msgError;
-        
-        appState.messages.push(userMessage);
-        
-        // Show typing indicator
         showTypingIndicator();
         
         // Get AI response
         const aiResponse = await getAIResponse(message);
         
-        // Hide typing indicator
         hideTypingIndicator();
+        document.getElementById('processingMsg').style.display = 'none';
         
         if (aiResponse) {
-            // Display AI response
             displayMessage('assistant', aiResponse);
             
-            // Save AI response to database
-            const { data: assistantMessage, error: aiError } = await supabase
-                .from('messages')
-                .insert({
-                    chat_id: appState.currentChatId,
-                    user_id: appState.user.id,
-                    role: 'assistant',
-                    content: aiResponse,
-                    created_at: new Date().toISOString()
-                })
-                .select()
-                .single();
-            
-            if (!aiError) {
-                appState.messages.push(assistantMessage);
+            // Save AI response
+            if (supabase) {
+                const { data: assistantMessage } = await supabase
+                    .from('messages')
+                    .insert({
+                        chat_id: appState.currentChatId,
+                        user_id: appState.user.id,
+                        role: 'assistant',
+                        content: aiResponse,
+                        model: modelSelector.selectedModel
+                    })
+                    .select()
+                    .single();
+                
+                if (assistantMessage) {
+                    appState.messages.push(assistantMessage);
+                }
             }
             
             // Update chat title if first message
             if (appState.messages.length <= 2) {
                 await updateChatTitle(message);
             }
-            
-            // Play sound if enabled
-            if (appState.settings.enableSounds) {
-                playNotificationSound();
-            }
         }
     } catch (error) {
         hideTypingIndicator();
-        showToast('Error sending message: ' + error.message, 'error');
+        document.getElementById('processingMsg').style.display = 'none';
+        showToast('Error: ' + error.message, 'error');
     } finally {
         appState.isProcessing = false;
     }
 }
 
 async function getAIResponse(message) {
-    let retries = 0;
-    const maxRetries = CONFIG.MAX_RETRIES;
-    
-    while (retries < maxRetries) {
-        try {
-            const response = await callOpenRouterAPI(message);
-            return response;
-        } catch (error) {
-            retries++;
-            
-            if (retries < maxRetries) {
-                await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY * retries));
-                
-                if (appState.isConnectionStale()) {
-                    await refreshConnection();
-                }
-            } else {
-                throw error;
-            }
-        }
-    }
-}
-
-async function callOpenRouterAPI(message) {
-    const apiKey = appState.settings.openrouterKey || CONFIG.OPENROUTER_API_KEY;
+    const apiKey = appState.settings.openrouterKey || ENV.OPENROUTER_API_KEY;
     
     if (!apiKey) {
-        throw new Error('OpenRouter API key not configured');
+        throw new Error('OpenRouter API key not configured. Please add it in your profile settings.');
     }
     
-    // Build conversation history
     const messages = [
         ...appState.messages.slice(-10).map(msg => ({
             role: msg.role,
@@ -665,23 +905,22 @@ async function callOpenRouterAPI(message) {
         { role: 'user', content: message }
     ];
     
-    // Check if we're on Netlify or localhost
+    // Check if on Netlify
     const isProduction = window.location.hostname.includes('netlify.app') || 
-                        window.location.hostname.includes('0xhitek.com');
+                       window.location.hostname.includes('0xhitek.com');
     
     const apiUrl = isProduction 
         ? '/.netlify/functions/openrouter-proxy'
-        : CONFIG.OPENROUTER_API_URL;
+        : 'https://openrouter.ai/api/v1/chat/completions';
     
     try {
         const requestBody = {
-            model: appState.settings.selectedModel || CONFIG.DEFAULT_MODEL,
+            model: modelSelector.selectedModel,
             messages: messages,
-            max_tokens: appState.settings.maxTokens || CONFIG.DEFAULT_MAX_TOKENS,
-            temperature: appState.settings.temperature || CONFIG.DEFAULT_TEMPERATURE
+            maxTokens: appState.settings.maxTokens,
+            temperature: appState.settings.temperature
         };
         
-        // Add API key to body if using Netlify function
         if (isProduction) {
             requestBody.apiKey = apiKey;
         }
@@ -706,7 +945,6 @@ async function callOpenRouterAPI(message) {
         
         const data = await response.json();
         
-        // Update token count
         if (data.usage) {
             appState.tokenCount += data.usage.total_tokens || 0;
             updateTokenDisplay();
@@ -720,29 +958,43 @@ async function callOpenRouterAPI(message) {
 }
 
 async function refreshConnection() {
+    if (!supabase) return;
+    
     try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         
         if (session) {
             appState.user = session.user;
             appState.updateActivity();
-        } else {
-            appState.user = null;
-            appState.updateUI();
-            showToast('Session expired. Please login again.', 'warning');
         }
     } catch (error) {
         console.error('Error refreshing connection:', error);
     }
 }
 
+async function updateChatTitle(message) {
+    if (!appState.currentChatId || !supabase) return;
+    
+    try {
+        const title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+        
+        await supabase
+            .from('chats')
+            .update({ title })
+            .eq('id', appState.currentChatId);
+        
+        await loadChatHistory();
+    } catch (error) {
+        console.error('Error updating chat title:', error);
+    }
+}
+
 // ============================================
-// UI Display Functions
+// UI Functions
 // ============================================
 function displayMessage(role, content) {
     const container = document.getElementById('messagesContainer');
     
-    // Clear welcome message if exists
     const welcomeMsg = container.querySelector('.welcome-message');
     if (welcomeMsg) {
         welcomeMsg.remove();
@@ -759,18 +1011,10 @@ function displayMessage(role, content) {
     contentDiv.className = 'message-content';
     contentDiv.textContent = content;
     
-    if (appState.settings.showTimestamps) {
-        const timestamp = document.createElement('div');
-        timestamp.className = 'message-timestamp';
-        timestamp.textContent = formatTime(new Date());
-        contentDiv.appendChild(timestamp);
-    }
-    
     messageDiv.appendChild(avatarDiv);
     messageDiv.appendChild(contentDiv);
     container.appendChild(messageDiv);
     
-    // Scroll to bottom
     container.scrollTop = container.scrollHeight;
 }
 
@@ -786,20 +1030,6 @@ function displayMessages() {
                 </div>
                 <h2>Welcome to 0xHiTek</h2>
                 <p>Your gateway to AI models via OpenRouter</p>
-                <div class="features">
-                    <div class="feature">
-                        <i class="fas fa-brain"></i>
-                        <span>Multiple AI Models</span>
-                    </div>
-                    <div class="feature">
-                        <i class="fas fa-cloud"></i>
-                        <span>Cloud Storage</span>
-                    </div>
-                    <div class="feature">
-                        <i class="fas fa-bolt"></i>
-                        <span>Fast Response</span>
-                    </div>
-                </div>
             </div>
         `;
         return;
@@ -827,20 +1057,19 @@ function updateTokenDisplay() {
 }
 
 // ============================================
-// Admin Dashboard
+// Admin Functions
 // ============================================
 async function openAdminDashboard() {
-    if (!appState.user) return;
+    if (!appState.user || !supabase) return;
     
     try {
-        // Check if user is admin
         const { data: profile } = await supabase
             .from('profiles')
             .select('role')
             .eq('id', appState.user.id)
             .single();
         
-        if (profile?.role !== 'admin' && appState.user.email !== CONFIG.ADMIN_EMAIL) {
+        if (profile?.role !== 'admin' && appState.user.email !== ENV.ADMIN_EMAIL) {
             showToast('Unauthorized access', 'error');
             return;
         }
@@ -858,7 +1087,7 @@ async function openAdminDashboard() {
             .select('id')
             .gte('updated_at', today.toISOString());
         
-        // Update dashboard stats
+        // Update stats
         document.getElementById('totalUsers').textContent = users?.length || 0;
         document.getElementById('totalMessages').textContent = messages?.length || 0;
         document.getElementById('totalChats').textContent = chats?.length || 0;
@@ -875,7 +1104,7 @@ async function openAdminDashboard() {
                     <td>${user.message_count || 0}</td>
                     <td>${formatDate(user.created_at)}</td>
                     <td>
-                        <button class="btn btn-sm" onclick="toggleUserRole('${user.id}')">
+                        <button class="btn" onclick="toggleUserRole('${user.id}')">
                             ${user.role === 'admin' ? 'Remove Admin' : 'Make Admin'}
                         </button>
                     </td>
@@ -897,6 +1126,8 @@ function closeAdminDashboard() {
 }
 
 async function toggleUserRole(userId) {
+    if (!supabase) return;
+    
     try {
         const { data: user } = await supabase
             .from('profiles')
@@ -912,15 +1143,10 @@ async function toggleUserRole(userId) {
             .eq('id', userId);
         
         showToast(`User role updated to ${newRole}`, 'success');
-        await openAdminDashboard(); // Refresh dashboard
+        await openAdminDashboard();
     } catch (error) {
         showToast('Error updating user role', 'error');
     }
-}
-
-async function saveSystemSettings() {
-    // Implement system settings save logic
-    showToast('System settings saved', 'success');
 }
 
 // ============================================
@@ -933,27 +1159,22 @@ function openAuthModal(mode) {
     const submitText = document.getElementById('authSubmitText');
     const nameGroup = document.getElementById('nameGroup');
     const toggleText = document.getElementById('authToggleText');
-    const forgotPassword = document.getElementById('forgotPasswordLink');
     
     if (mode === 'login') {
-        title.textContent = 'Login';
-        subtitle.textContent = 'Welcome back! Please login to continue.';
-        submitText.textContent = 'Login';
+        title.textContent = 'LOGIN';
+        subtitle.textContent = 'Access the system';
+        submitText.textContent = 'LOGIN';
         nameGroup.style.display = 'none';
-        toggleText.innerHTML = "Don't have an account? <a href='#' id='authToggleLink'>Sign up</a>";
-        forgotPassword.style.display = 'block';
+        toggleText.innerHTML = "Don't have an account? <a href='#' id='authToggleLink' style='color: var(--primary);'>Sign up</a>";
     } else {
-        title.textContent = 'Sign Up';
-        subtitle.textContent = 'Create your account to get started.';
-        submitText.textContent = 'Sign Up';
+        title.textContent = 'SIGN UP';
+        subtitle.textContent = 'Create your account';
+        submitText.textContent = 'SIGN UP';
         nameGroup.style.display = 'block';
-        toggleText.innerHTML = "Already have an account? <a href='#' id='authToggleLink'>Login</a>";
-        forgotPassword.style.display = 'none';
+        toggleText.innerHTML = "Already have an account? <a href='#' id='authToggleLink' style='color: var(--primary);'>Login</a>";
     }
     
     modal.classList.add('active');
-    
-    // Re-attach toggle listener
     document.getElementById('authToggleLink').addEventListener('click', toggleAuthMode);
 }
 
@@ -964,7 +1185,7 @@ function closeAuthModal() {
 
 function toggleAuthMode(e) {
     e.preventDefault();
-    const currentMode = document.getElementById('authTitle').textContent === 'Login' ? 'signup' : 'login';
+    const currentMode = document.getElementById('authTitle').textContent === 'LOGIN' ? 'signup' : 'login';
     openAuthModal(currentMode);
 }
 
@@ -976,32 +1197,9 @@ function closeProfileModal() {
     document.getElementById('profileModal').classList.remove('active');
 }
 
-function switchTab(tabName) {
-    // Update tab buttons
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-    
-    // Update tab content
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(`${tabName}Tab`).classList.add('active');
-}
-
 // ============================================
 // Utility Functions
 // ============================================
-function initializeModels() {
-    const modelSelect = document.getElementById('modelSelect');
-    modelSelect.innerHTML = CONFIG.AVAILABLE_MODELS.map(model => 
-        `<option value="${model.id}">${model.name}</option>`
-    ).join('');
-    
-    modelSelect.value = appState.settings.selectedModel || CONFIG.DEFAULT_MODEL;
-}
-
 function showToast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
     
@@ -1029,20 +1227,15 @@ function formatDate(dateString) {
     });
 }
 
-function formatTime(date) {
-    return date.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
-        minute: '2-digit' 
-    });
-}
-
-function playNotificationSound() {
-    // Create and play a simple notification sound
-    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZURE');
-    audio.volume = 0.3;
-    audio.play().catch(() => {}); // Ignore errors if autoplay is blocked
-}
-
-// Make toggleUserRole available globally for onclick
+// Make functions available globally
 window.toggleUserRole = toggleUserRole;
 window.loadChat = loadChat;
+window.modelSelector = modelSelector;
+
+// Local development environment variables (remove in production)
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    // For local testing only - add your keys here temporarily
+    // ENV.SUPABASE_URL = 'your_url_here';
+    // ENV.SUPABASE_ANON_KEY = 'your_key_here';
+    // ENV.OPENROUTER_API_KEY = 'your_key_here';
+}
