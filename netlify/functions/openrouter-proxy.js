@@ -1,71 +1,57 @@
+// This runs on Netlify's servers, not in the browser
 exports.handler = async (event, context) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS'
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
-
+  // Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers,
       body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
 
+  // Get the API key from environment variable (set in Netlify dashboard)
+  const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+  
+  if (!OPENROUTER_API_KEY) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'API key not configured' })
+    };
+  }
+
   try {
-    const { messages, model, maxTokens, temperature, apiKey } = JSON.parse(event.body);
-    
-    const openrouterKey = apiKey || process.env.OPENROUTER_API_KEY;
+    const { messages, model, temperature, max_tokens } = JSON.parse(event.body);
 
-    if (!openrouterKey) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'API key is required' })
-      };
-    }
-
+    // Call OpenRouter API from the backend
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openrouterKey}`,
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'HTTP-Referer': 'https://0xhitek.com',
         'X-Title': '0xHiTek Chat'
       },
       body: JSON.stringify({
-        model: model || 'openai/gpt-3.5-turbo',
-        messages: messages,
-        max_tokens: maxTokens || 1000,
-        temperature: temperature || 0.7
+        messages,
+        model,
+        temperature,
+        max_tokens
       })
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return {
-        statusCode: response.status,
-        headers,
-        body: JSON.stringify({ error: data.error || 'API request failed' })
-      };
-    }
-
     return {
       statusCode: 200,
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(data)
     };
   } catch (error) {
+    console.error('OpenRouter API Error:', error);
     return {
       statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({ error: 'Failed to process request' })
     };
   }
 };
