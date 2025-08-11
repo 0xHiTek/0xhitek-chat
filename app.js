@@ -206,6 +206,34 @@ class ModelSelector {
         }
     }
 
+            // src/services/api.js or wherever your API calls are
+        export async function sendChatMessage(messages, settings = {}) {
+          try {
+            // Call YOUR Netlify function, not OpenRouter
+            const response = await fetch('/.netlify/functions/chat', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                messages: messages,
+                model: settings.model || 'openai/gpt-3.5-turbo',
+                temperature: settings.temperature || 0.7,
+                max_tokens: settings.maxTokens || 1000
+              })
+            });
+        
+            if (!response.ok) {
+              throw new Error('Chat request failed');
+            }
+        
+            return await response.json();
+          } catch (error) {
+            console.error('Chat error:', error);
+            throw error;
+          }
+        }
+
     async fetchModelsFromAPI() {
         try {
             const apiKey = appState.settings.openrouterKey || ENV.OPENROUTER_API_KEY || '';
