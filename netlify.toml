@@ -1,17 +1,11 @@
+# netlify.toml
 [build]
-  command = "node inject-env.js"
-  publish = "."
-  functions = "netlify/functions"
+  publish = "."  # or your actual publish directory
+  # Remove or comment out the build command for now
+  # command = "node inject-env.js"
 
 [build.environment]
   NODE_VERSION = "18"
-
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "SAMEORIGIN"
-    X-XSS-Protection = "1; mode=block"
-    X-Content-Type-Options = "nosniff"
 
 [[redirects]]
   from = "/api/*"
@@ -22,3 +16,10 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
