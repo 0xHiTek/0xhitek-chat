@@ -17,7 +17,141 @@ const ENV = {
 // Initialize Supabase Client
 // ============================================
 let supabase = null;
+// Global variables
+let supabaseClient = null;
+let currentUser = null;
 
+// Initialize the app
+async function initApp() {
+  try {
+    // First, get configuration from backend
+    const configResponse = await fetch('/.netlify/functions/get-config');
+    if (!configResponse.ok) {
+      throw new Error('Failed to load configuration');
+    }
+    
+    const config = await configResponse.json();
+    
+    // Initialize Supabase with the config
+    if (config.supabaseUrl && config.supabaseAnonKey) {
+      const { createClient } = window.supabase;
+      supabaseClient = createClient(config.supabaseUrl, config.supabaseAnonKey);
+      console.log('Supabase initialized successfully');
+    } else {
+      console.error('Missing Supabase configuration');
+      // Continue without Supabase for now
+    }
+
+    // Load AI models (use static list for now)
+    loadModels();
+    
+    // Check if user is logged in
+    if (supabaseClient) {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        currentUser = session.user;
+        showChatInterface();
+      } else {
+        showLoginForm();
+      }
+    } else {
+      // If no Supabase, just show the chat interface
+      showChatInterface();
+    }
+    
+  } catch (error) {
+    console.error('Initialization error:', error);
+    // Show error to user
+    showError('Failed to initialize app: ' + error.message);
+  }
+}
+
+// Load models (static list for now)
+function loadModels() {
+  const models = [
+    { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+    { id: 'openai/gpt-4', name: 'GPT-4' },
+    { id: 'anthropic/claude-2', name: 'Claude 2' },
+    { id: 'google/palm-2-chat-bison', name: 'PaLM 2' },
+    { id: 'meta-llama/llama-2-70b-chat', name: 'Llama 2 70B' }
+  ];
+  
+  const modelSelect = document.getElementById('model-select') || 
+                      document.querySelector('select[name="model"]') ||
+                      document.querySelector('.model-select');
+                      
+  if (modelSelect) {
+    modelSelect.innerHTML = models.map(model => 
+      `<option value="${model.id}">${model.name}</option>`
+    ).join('');
+    console.log('Models loaded');
+  } else {
+    console.log('Model select element not found');
+  }
+}
+
+// Send message to AI through your backend
+async function sendChatMessage(message, model = 'openai/gpt-3.5-turbo') {
+  try {
+    const response = await fetch('/.netlify/functions/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: message }],
+        model: model,
+        temperature: 0.7,
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to send message');
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+    
+  } catch (error) {
+    console.error('Chat error:', error);
+    throw error;
+  }
+}
+
+// Show error message
+function showError(message) {
+  console.error(message);
+  const errorDiv = document.createElement('div');
+  errorDiv.style.cssText = 'position: fixed; top: 20px; right: 20px; background: red; color: white; padding: 10px; border-radius: 5px; z-index: 9999;';
+  errorDiv.textContent = message;
+  document.body.appendChild(errorDiv);
+  setTimeout(() => errorDiv.remove(), 5000);
+}
+
+// Show login form (implement based on your HTML)
+function showLoginForm() {
+  console.log('Showing login form');
+  // Your login form code here
+  document.querySelector('.login-form')?.classList.remove('hidden');
+  document.querySelector('.chat-interface')?.classList.add('hidden');
+}
+
+// Show chat interface (implement based on your HTML)
+function showChatInterface() {
+  console.log('Showing chat interface');
+  // Your chat interface code here
+  document.querySelector('.login-form')?.classList.add('hidden');
+  document.querySelector('.chat-interface')?.classList.remove('hidden');
+}
+
+// Initialize when page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
 // ============================================
 // State Management
 // ============================================
