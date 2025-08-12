@@ -1,12 +1,11 @@
+// netlify/functions/chat.js
 exports.handler = async (event, context) => {
-  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS'
   };
 
-  // Handle preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -23,16 +22,16 @@ exports.handler = async (event, context) => {
     const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     
     if (!OPENROUTER_API_KEY) {
+      console.error('OpenRouter API key not found in environment variables');
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'API key not configured' })
+        body: JSON.stringify({ error: 'Server not configured properly' })
       };
     }
 
-    const body = JSON.parse(event.body);
+    const requestBody = JSON.parse(event.body);
     
-    // Call OpenRouter
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -41,17 +40,32 @@ exports.handler = async (event, context) => {
         'HTTP-Referer': 'https://0xhitek.com',
         'X-Title': '0xHiTek Chat'
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        model: requestBody.model || 'openai/gpt-3.5-turbo',
+        messages: requestBody.messages,
+        temperature: requestBody.temperature || 0.7,
+        max_tokens: requestBody.max_tokens || 1000
+      })
     });
 
     const data = await response.json();
     
+    if (!response.ok) {
+      return {
+        statusCode: response.status,
+        headers,
+        body: JSON.stringify({ error: data.error || 'API request failed' })
+      };
+    }
+
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify(data)
     };
+
   } catch (error) {
+    console.error('Function error:', error);
     return {
       statusCode: 500,
       headers,
