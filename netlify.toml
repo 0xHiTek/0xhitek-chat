@@ -1,10 +1,23 @@
+# netlify.toml
+# Netlify configuration file
+
 [build]
+  # Since we're using plain HTML/JS, no build command needed
   publish = "."
 
 [build.environment]
   NODE_VERSION = "18"
 
+# Redirect API calls to Netlify Functions
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
