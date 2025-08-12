@@ -1,9 +1,10 @@
-// app.js - Main JavaScript for 0xHiTek Chat
+// app.js - Main JavaScript for 0xHiTek Chat with dynamic model loading
 
 // Global variables
 let supabaseClient = null;
 let currentUser = null;
 let chatHistory = [];
+let availableModels = [];
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -15,6 +16,9 @@ async function initializeApp() {
     try {
         // Load configuration from backend
         await loadConfiguration();
+        
+        // Load all available models from OpenRouter
+        await loadModels();
         
         // Set up event listeners
         setupEventListeners();
@@ -53,6 +57,125 @@ async function loadConfiguration() {
     }
 }
 
+// Load all available models from OpenRouter
+async function loadModels() {
+    const modelSelect = document.getElementById('modelSelect');
+    
+    try {
+        // Show loading state
+        if (modelSelect) {
+            modelSelect.innerHTML = '<option>Loading models...</option>';
+            modelSelect.disabled = true;
+        }
+        
+        // Fetch models from backend
+        const response = await fetch('/.netlify/functions/get-models');
+        if (!response.ok) {
+            throw new Error('Failed to load models');
+        }
+        
+        const models = await response.json();
+        availableModels = models;
+        
+        if (modelSelect && models.length > 0) {
+            // Group models by provider
+            const modelsByProvider = {};
+            models.forEach(model => {
+                const provider = model.id.split('/')[0];
+                if (!modelsByProvider[provider]) {
+                    modelsByProvider[provider] = [];
+                }
+                modelsByProvider[provider].push(model);
+            });
+            
+            // Create grouped options
+            modelSelect.innerHTML = '';
+            
+            // Add popular models first
+            const popularGroup = document.createElement('optgroup');
+            popularGroup.label = '⭐ Popular Models';
+            
+            const popularModels = [
+                'openai/gpt-3.5-turbo',
+                'openai/gpt-4',
+                'openai/gpt-4-turbo-preview',
+                'anthropic/claude-2.1',
+                'google/palm-2-chat-bison',
+                'meta-llama/llama-2-70b-chat'
+            ];
+            
+            popularModels.forEach(modelId => {
+                const model = models.find(m => m.id === modelId);
+                if (model) {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.display_name || model.name;
+                    popularGroup.appendChild(option);
+                }
+            });
+            
+            if (popularGroup.children.length > 0) {
+                modelSelect.appendChild(popularGroup);
+            }
+            
+            // Add all models grouped by provider
+            const providerNames = {
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic',
+                'google': 'Google',
+                'meta-llama': 'Meta Llama',
+                'mistralai': 'Mistral AI',
+                'cohere': 'Cohere',
+                'huggingface': 'HuggingFace'
+            };
+            
+            Object.keys(modelsByProvider).sort().forEach(provider => {
+                const group = document.createElement('optgroup');
+                group.label = providerNames[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
+                
+                modelsByProvider[provider].forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id;
+                    option.textContent = model.display_name || model.name;
+                    
+                    // Add pricing info if available
+                    if (model.pricing && model.pricing.prompt) {
+                        option.title = `$${model.pricing.prompt} per 1K tokens`;
+                    }
+                    
+                    group.appendChild(option);
+                });
+                
+                modelSelect.appendChild(group);
+            });
+            
+            modelSelect.disabled = false;
+            console.log(`Loaded ${models.length} models`);
+            
+            // Update model count in UI if element exists
+            const modelCount = document.getElementById('modelCount');
+            if (modelCount) {
+                modelCount.textContent = `${models.length} models available`;
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error loading models:', error);
+        
+        // Fallback to basic models
+        if (modelSelect) {
+            modelSelect.innerHTML = `
+                <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                <option value="openai/gpt-4">GPT-4</option>
+                <option value="anthropic/claude-2">Claude 2</option>
+                <option value="google/palm-2-chat-bison">PaLM 2</option>
+                <option value="meta-llama/llama-2-70b-chat">Llama 2 70B</option>
+            `;
+            modelSelect.disabled = false;
+        }
+    }
+}
+
 // Set up event listeners
 function setupEventListeners() {
     // Login form
@@ -73,6 +196,17 @@ function setupEventListeners() {
         chatForm.addEventListener('submit', handleChatSubmit);
     }
     
+    // Model select - show model info
+    const modelSelect = document.getElementById('modelSelect');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', (e) => {
+            const selectedModel = availableModels.find(m => m.id === e.target.value);
+            if (selectedModel && selectedModel.context_length) {
+                console.log(`Selected model: ${selectedModel.name} (Context: ${selectedModel.context_length} tokens)`);
+            }
+        });
+    }
+    
     // Settings sliders
     const tempSlider = document.getElementById('temperature');
     if (tempSlider) {
@@ -86,6 +220,12 @@ function setupEventListeners() {
         tokensSlider.addEventListener('input', (e) => {
             document.getElementById('tokensValue').textContent = e.target.value;
         });
+    }
+    
+    // Add refresh models button if it exists
+    const refreshModelsBtn = document.getElementById('refreshModels');
+    if (refreshModelsBtn) {
+        refreshModelsBtn.addEventListener('click', loadModels);
     }
 }
 
@@ -253,6 +393,9 @@ async function handleChatSubmit(e) {
         const model = document.getElementById('modelSelect').value;
         const temperature = parseFloat(document.getElementById('temperature').value);
         const maxTokens = parseInt(document.getElementById('maxTokens').value);
+        
+        // Show which model is being used
+        console.log(`Sending to model: ${model}`);
         
         // Send message to API
         const response = await sendChatMessage(message, model, temperature, maxTokens);
