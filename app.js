@@ -1,10 +1,17 @@
-// app.js - Main JavaScript for 0xHiTek Chat with dynamic model loading
+// app.js - Main JavaScript with Model Filtering
 
 // Global variables
 let supabaseClient = null;
 let currentUser = null;
 let chatHistory = [];
 let availableModels = [];
+let filteredModels = [];
+let currentFilters = {
+    search: '',
+    provider: 'all',
+    contextSize: 'all',
+    capabilities: []
+};
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', initializeApp);
@@ -22,6 +29,9 @@ async function initializeApp() {
         
         // Set up event listeners
         setupEventListeners();
+        
+        // Set up model filters
+        setupModelFilters();
         
         // Check authentication status
         await checkAuth();
@@ -76,104 +86,262 @@ async function loadModels() {
         
         const models = await response.json();
         availableModels = models;
+        filteredModels = models;
         
-        if (modelSelect && models.length > 0) {
-            // Group models by provider
-            const modelsByProvider = {};
-            models.forEach(model => {
-                const provider = model.id.split('/')[0];
-                if (!modelsByProvider[provider]) {
-                    modelsByProvider[provider] = [];
-                }
-                modelsByProvider[provider].push(model);
-            });
-            
-            // Create grouped options
-            modelSelect.innerHTML = '';
-            
-            // Add popular models first
-            const popularGroup = document.createElement('optgroup');
-            popularGroup.label = '⭐ Popular Models';
-            
-            const popularModels = [
-                'openai/gpt-3.5-turbo',
-                'openai/gpt-4',
-                'openai/gpt-4-turbo-preview',
-                'anthropic/claude-2.1',
-                'google/palm-2-chat-bison',
-                'meta-llama/llama-2-70b-chat'
-            ];
-            
-            popularModels.forEach(modelId => {
-                const model = models.find(m => m.id === modelId);
-                if (model) {
-                    const option = document.createElement('option');
-                    option.value = model.id;
-                    option.textContent = model.display_name || model.name;
-                    popularGroup.appendChild(option);
-                }
-            });
-            
-            if (popularGroup.children.length > 0) {
-                modelSelect.appendChild(popularGroup);
-            }
-            
-            // Add all models grouped by provider
-            const providerNames = {
-                'openai': 'OpenAI',
-                'anthropic': 'Anthropic',
-                'google': 'Google',
-                'meta-llama': 'Meta Llama',
-                'mistralai': 'Mistral AI',
-                'cohere': 'Cohere',
-                'huggingface': 'HuggingFace'
-            };
-            
-            Object.keys(modelsByProvider).sort().forEach(provider => {
-                const group = document.createElement('optgroup');
-                group.label = providerNames[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
-                
-                modelsByProvider[provider].forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model.id;
-                    option.textContent = model.display_name || model.name;
-                    
-                    // Add pricing info if available
-                    if (model.pricing && model.pricing.prompt) {
-                        option.title = `$${model.pricing.prompt} per 1K tokens`;
-                    }
-                    
-                    group.appendChild(option);
-                });
-                
-                modelSelect.appendChild(group);
-            });
-            
-            modelSelect.disabled = false;
-            console.log(`Loaded ${models.length} models`);
-            
-            // Update model count in UI if element exists
-            const modelCount = document.getElementById('modelCount');
-            if (modelCount) {
-                modelCount.textContent = `${models.length} models available`;
-            }
-        }
+        // Display models
+        displayModels(models);
+        
+        // Update model count
+        updateModelCount(models.length, models.length);
+        
+        console.log(`Loaded ${models.length} models`);
         
     } catch (error) {
         console.error('Error loading models:', error);
         
         // Fallback to basic models
-        if (modelSelect) {
-            modelSelect.innerHTML = `
-                <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                <option value="openai/gpt-4">GPT-4</option>
-                <option value="anthropic/claude-2">Claude 2</option>
-                <option value="google/palm-2-chat-bison">PaLM 2</option>
-                <option value="meta-llama/llama-2-70b-chat">Llama 2 70B</option>
-            `;
-            modelSelect.disabled = false;
+        const fallbackModels = [
+            { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo', display_name: 'GPT-3.5 Turbo (4k tokens)', context_length: 4096 },
+            { id: 'openai/gpt-4', name: 'GPT-4', display_name: 'GPT-4 (8k tokens)', context_length: 8192 },
+            { id: 'anthropic/claude-2', name: 'Claude 2', display_name: 'Claude 2 (100k tokens)', context_length: 100000 }
+        ];
+        
+        availableModels = fallbackModels;
+        filteredModels = fallbackModels;
+        displayModels(fallbackModels);
+    }
+}
+
+// Display models in the select dropdown
+function displayModels(models) {
+    const modelSelect = document.getElementById('modelSelect');
+    if (!modelSelect) return;
+    
+    if (models.length === 0) {
+        modelSelect.innerHTML = '<option>No models found</option>';
+        modelSelect.disabled = true;
+        return;
+    }
+    
+    // Group models by provider
+    const modelsByProvider = {};
+    models.forEach(model => {
+        const provider = model.id.split('/')[0];
+        if (!modelsByProvider[provider]) {
+            modelsByProvider[provider] = [];
+        }
+        modelsByProvider[provider].push(model);
+    });
+    
+    // Clear and rebuild select
+    modelSelect.innerHTML = '';
+    
+    // Add models grouped by provider
+    const providerNames = {
+        'openai': '🤖 OpenAI',
+        'anthropic': '🧠 Anthropic',
+        'google': '🔍 Google',
+        'meta-llama': '🦙 Meta Llama',
+        'mistralai': '🌬️ Mistral AI',
+        'cohere': '🔮 Cohere',
+        'huggingface': '🤗 HuggingFace'
+    };
+    
+    Object.keys(modelsByProvider).sort().forEach(provider => {
+        const group = document.createElement('optgroup');
+        group.label = providerNames[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
+        
+        modelsByProvider[provider].forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.display_name || model.name;
+            
+            // Add data attributes for filtering
+            option.dataset.provider = provider;
+            option.dataset.contextLength = model.context_length || 0;
+            
+            group.appendChild(option);
+        });
+        
+        modelSelect.appendChild(group);
+    });
+    
+    modelSelect.disabled = false;
+}
+
+// Set up model filters
+function setupModelFilters() {
+    // Search box
+    const searchBox = document.getElementById('modelSearch');
+    if (searchBox) {
+        searchBox.addEventListener('input', debounce((e) => {
+            currentFilters.search = e.target.value.toLowerCase();
+            applyFilters();
+        }, 300));
+    }
+    
+    // Provider filter buttons
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // Remove active class from all buttons
+            filterButtons.forEach(b => b.classList.remove('active'));
+            // Add active class to clicked button
+            e.target.classList.add('active');
+            
+            currentFilters.provider = e.target.dataset.filter;
+            applyFilters();
+        });
+    });
+    
+    // Context size filter
+    const contextFilter = document.getElementById('contextFilter');
+    if (contextFilter) {
+        contextFilter.addEventListener('change', (e) => {
+            currentFilters.contextSize = e.target.value;
+            applyFilters();
+        });
+    }
+    
+    // Capability checkboxes
+    const capabilityCheckboxes = {
+        coding: document.getElementById('filterCoding'),
+        chat: document.getElementById('filterChat'),
+        instruct: document.getElementById('filterInstruct')
+    };
+    
+    Object.keys(capabilityCheckboxes).forEach(key => {
+        if (capabilityCheckboxes[key]) {
+            capabilityCheckboxes[key].addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    if (!currentFilters.capabilities.includes(key)) {
+                        currentFilters.capabilities.push(key);
+                    }
+                } else {
+                    currentFilters.capabilities = currentFilters.capabilities.filter(c => c !== key);
+                }
+                applyFilters();
+            });
+        }
+    });
+}
+
+// Apply filters to models
+function applyFilters() {
+    filteredModels = availableModels.filter(model => {
+        // Search filter
+        if (currentFilters.search) {
+            const searchTerm = currentFilters.search.toLowerCase();
+            const modelName = (model.name || model.id).toLowerCase();
+            const modelId = model.id.toLowerCase();
+            if (!modelName.includes(searchTerm) && !modelId.includes(searchTerm)) {
+                return false;
+            }
+        }
+        
+        // Provider filter
+        if (currentFilters.provider !== 'all') {
+            const provider = model.id.split('/')[0];
+            
+            if (currentFilters.provider === 'opensource') {
+                // Open source models
+                const openSourceProviders = ['meta-llama', 'mistralai', 'huggingface', 'teknium', 'nous'];
+                if (!openSourceProviders.includes(provider)) {
+                    return false;
+                }
+            } else if (currentFilters.provider === 'meta') {
+                if (provider !== 'meta-llama') {
+                    return false;
+                }
+            } else {
+                if (provider !== currentFilters.provider) {
+                    return false;
+                }
+            }
+        }
+        
+        // Context size filter
+        if (currentFilters.contextSize !== 'all') {
+            const contextLength = model.context_length || 0;
+            
+            switch (currentFilters.contextSize) {
+                case 'small':
+                    if (contextLength >= 4096) return false;
+                    break;
+                case 'medium':
+                    if (contextLength < 4096 || contextLength > 16384) return false;
+                    break;
+                case 'large':
+                    if (contextLength < 16384 || contextLength > 100000) return false;
+                    break;
+                case 'xlarge':
+                    if (contextLength <= 100000) return false;
+                    break;
+            }
+        }
+        
+        // Capability filters
+        if (currentFilters.capabilities.length > 0) {
+            const modelIdLower = model.id.toLowerCase();
+            const modelNameLower = (model.name || '').toLowerCase();
+            
+            for (const capability of currentFilters.capabilities) {
+                switch (capability) {
+                    case 'coding':
+                        if (!modelIdLower.includes('code') && 
+                            !modelNameLower.includes('code') &&
+                            !modelIdLower.includes('codellama')) {
+                            return false;
+                        }
+                        break;
+                    case 'chat':
+                        if (!modelIdLower.includes('chat') && 
+                            !modelNameLower.includes('chat') &&
+                            !modelIdLower.includes('turbo')) {
+                            return false;
+                        }
+                        break;
+                    case 'instruct':
+                        if (!modelIdLower.includes('instruct') && 
+                            !modelNameLower.includes('instruct')) {
+                            return false;
+                        }
+                        break;
+                }
+            }
+        }
+        
+        return true;
+    });
+    
+    // Update display
+    displayModels(filteredModels);
+    updateModelCount(filteredModels.length, availableModels.length);
+}
+
+// Update model count display
+function updateModelCount(filtered, total) {
+    const modelCount = document.getElementById('modelCount');
+    if (modelCount) {
+        if (filtered === total) {
+            modelCount.textContent = `${total} models available`;
+        } else {
+            modelCount.textContent = `Showing ${filtered} of ${total} models`;
         }
     }
+}
+
+// Debounce helper function
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
 }
 
 // Set up event listeners
@@ -201,8 +369,8 @@ function setupEventListeners() {
     if (modelSelect) {
         modelSelect.addEventListener('change', (e) => {
             const selectedModel = availableModels.find(m => m.id === e.target.value);
-            if (selectedModel && selectedModel.context_length) {
-                console.log(`Selected model: ${selectedModel.name} (Context: ${selectedModel.context_length} tokens)`);
+            if (selectedModel) {
+                showModelInfo(selectedModel);
             }
         });
     }
@@ -221,12 +389,38 @@ function setupEventListeners() {
             document.getElementById('tokensValue').textContent = e.target.value;
         });
     }
+}
+
+// Show model information
+function showModelInfo(model) {
+    const modelInfo = document.getElementById('modelInfo');
+    if (!modelInfo) return;
     
-    // Add refresh models button if it exists
-    const refreshModelsBtn = document.getElementById('refreshModels');
-    if (refreshModelsBtn) {
-        refreshModelsBtn.addEventListener('click', loadModels);
+    let infoHTML = '<div class="model-info-content">';
+    
+    // Provider
+    const provider = model.id.split('/')[0];
+    infoHTML += `<div class="model-info-item"><span class="model-info-label">Provider:</span> ${provider}</div>`;
+    
+    // Context length
+    if (model.context_length) {
+        infoHTML += `<div class="model-info-item"><span class="model-info-label">Context:</span> ${model.context_length.toLocaleString()} tokens</div>`;
     }
+    
+    // Pricing
+    if (model.pricing) {
+        if (model.pricing.prompt) {
+            infoHTML += `<div class="model-info-item"><span class="model-info-label">Input:</span> ${model.pricing.prompt}/1K tokens</div>`;
+        }
+        if (model.pricing.completion) {
+            infoHTML += `<div class="model-info-item"><span class="model-info-label">Output:</span> ${model.pricing.completion}/1K tokens</div>`;
+        }
+    }
+    
+    infoHTML += '</div>';
+    
+    modelInfo.innerHTML = infoHTML;
+    modelInfo.classList.add('show');
 }
 
 // Check authentication status
@@ -395,7 +589,8 @@ async function handleChatSubmit(e) {
         const maxTokens = parseInt(document.getElementById('maxTokens').value);
         
         // Show which model is being used
-        console.log(`Sending to model: ${model}`);
+        const selectedModel = availableModels.find(m => m.id === model);
+        console.log(`Sending to model: ${selectedModel?.name || model}`);
         
         // Send message to API
         const response = await sendChatMessage(message, model, temperature, maxTokens);
@@ -522,4 +717,4 @@ function showError(message, type = 'error') {
 }
 
 // Log app startup
-console.log('0xHiTek Chat loaded - waiting for DOM...');
+console.log('0xHiTek Chat with Filters loaded - waiting for DOM...');
