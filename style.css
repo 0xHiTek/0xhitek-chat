@@ -1,4 +1,4 @@
-/* style.css - 0xHiTek Chat Styles */
+/* style.css - 0xHiTek Chat Styles with Model Filter */
 
 * {
     margin: 0;
@@ -141,7 +141,7 @@ body {
 }
 
 .sidebar {
-    width: 300px;
+    width: 350px;
     background: rgba(0, 0, 0, 0.9);
     border-right: 2px solid #00ff00;
     padding: 20px;
@@ -176,6 +176,7 @@ body {
     background: #cc0000;
 }
 
+/* Model Selection and Filter */
 .model-selection {
     margin-bottom: 30px;
 }
@@ -184,11 +185,22 @@ body {
     display: block;
     margin-bottom: 10px;
     color: #00ff00;
+    font-weight: bold;
 }
 
-.model-selection select {
+.model-filter-container {
+    background: rgba(0, 255, 0, 0.05);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+
+/* Model Search */
+.model-search {
     width: 100%;
     padding: 10px;
+    margin-bottom: 15px;
     background: #0a0a0a;
     border: 1px solid #00ff00;
     border-radius: 5px;
@@ -196,6 +208,161 @@ body {
     font-family: 'Courier New', monospace;
 }
 
+.model-search::placeholder {
+    color: #008800;
+}
+
+.model-search:focus {
+    outline: none;
+    border-color: #00ff00;
+    box-shadow: 0 0 5px rgba(0, 255, 0, 0.3);
+}
+
+/* Quick Filters */
+.quick-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 15px;
+}
+
+.filter-btn {
+    padding: 5px 10px;
+    background: rgba(0, 255, 0, 0.1);
+    border: 1px solid #00ff00;
+    border-radius: 3px;
+    color: #00ff00;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-size: 12px;
+    font-family: 'Courier New', monospace;
+}
+
+.filter-btn:hover {
+    background: rgba(0, 255, 0, 0.2);
+}
+
+.filter-btn.active {
+    background: #00ff00;
+    color: #000;
+    font-weight: bold;
+}
+
+/* Context Filter */
+.context-filter {
+    margin-bottom: 15px;
+}
+
+.context-filter label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: #00cc00;
+}
+
+.context-filter select {
+    width: 100%;
+    padding: 8px;
+    background: #0a0a0a;
+    border: 1px solid #00ff00;
+    border-radius: 3px;
+    color: #00ff00;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+}
+
+/* Capability Filters */
+.capability-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: #00cc00;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin-right: 5px;
+    accent-color: #00ff00;
+}
+
+.checkbox-label:hover {
+    color: #00ff00;
+}
+
+/* Model Select */
+#modelSelect {
+    width: 100%;
+    padding: 10px;
+    background: #0a0a0a;
+    border: 2px solid #00ff00;
+    border-radius: 5px;
+    color: #00ff00;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+#modelSelect:focus {
+    outline: none;
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+#modelSelect optgroup {
+    background: #0a0a0a;
+    color: #00ff00;
+    font-weight: bold;
+}
+
+#modelSelect option {
+    background: #0a0a0a;
+    color: #00cc00;
+    padding: 5px;
+}
+
+#modelSelect option:hover {
+    background: rgba(0, 255, 0, 0.1);
+}
+
+/* Model Info */
+.model-info {
+    background: rgba(0, 255, 0, 0.05);
+    border: 1px solid rgba(0, 255, 0, 0.2);
+    border-radius: 5px;
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    color: #00cc00;
+    display: none;
+}
+
+.model-info.show {
+    display: block;
+}
+
+.model-info-item {
+    margin-bottom: 5px;
+}
+
+.model-info-label {
+    font-weight: bold;
+    color: #00ff00;
+}
+
+/* Model Count */
+.model-count {
+    text-align: center;
+    font-size: 11px;
+    color: #008800;
+    margin-top: 10px;
+}
+
+/* Settings */
 .settings h3 {
     color: #00ff00;
     margin-bottom: 20px;
@@ -213,6 +380,7 @@ body {
 
 .setting-item input[type="range"] {
     width: 100%;
+    accent-color: #00ff00;
 }
 
 /* Chat Main Area */
@@ -378,6 +546,28 @@ body {
     to { transform: translateX(0); }
 }
 
+/* Scrollbar Styling */
+.sidebar::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb {
+    background: #00ff00;
+    border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover,
+.chat-messages::-webkit-scrollbar-thumb:hover {
+    background: #00cc00;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .chat-container {
@@ -395,5 +585,14 @@ body {
     .message.assistant {
         margin-left: 0;
         margin-right: 0;
+    }
+    
+    .quick-filters {
+        justify-content: space-between;
+    }
+    
+    .filter-btn {
+        flex: 1;
+        text-align: center;
     }
 }
