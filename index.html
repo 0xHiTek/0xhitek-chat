@@ -65,15 +65,67 @@
                         <button onclick="logout()" class="logout-btn">Logout</button>
                     </div>
                     
+                    <!-- Model Selection with Filter -->
                     <div class="model-selection">
                         <label for="modelSelect">AI Model:</label>
+                        
+                        <!-- Model Filter Section -->
+                        <div class="model-filter-container">
+                            <!-- Search Box -->
+                            <input type="text" 
+                                   id="modelSearch" 
+                                   placeholder="🔍 Search models..." 
+                                   class="model-search">
+                            
+                            <!-- Quick Filters -->
+                            <div class="quick-filters">
+                                <button class="filter-btn active" data-filter="all">All</button>
+                                <button class="filter-btn" data-filter="openai">OpenAI</button>
+                                <button class="filter-btn" data-filter="anthropic">Anthropic</button>
+                                <button class="filter-btn" data-filter="google">Google</button>
+                                <button class="filter-btn" data-filter="meta">Meta</button>
+                                <button class="filter-btn" data-filter="opensource">Open Source</button>
+                            </div>
+                            
+                            <!-- Context Length Filter -->
+                            <div class="context-filter">
+                                <label>Context Length:</label>
+                                <select id="contextFilter">
+                                    <option value="all">Any Size</option>
+                                    <option value="small">< 4K tokens</option>
+                                    <option value="medium">4K - 16K tokens</option>
+                                    <option value="large">16K - 100K tokens</option>
+                                    <option value="xlarge">> 100K tokens</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Capability Filters -->
+                            <div class="capability-filters">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="filterCoding">
+                                    <span>Coding</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="filterChat">
+                                    <span>Chat</span>
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="filterInstruct">
+                                    <span>Instruct</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Model Dropdown -->
                         <select id="modelSelect">
-                            <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                            <option value="openai/gpt-4">GPT-4</option>
-                            <option value="anthropic/claude-2">Claude 2</option>
-                            <option value="google/palm-2-chat-bison">PaLM 2</option>
-                            <option value="meta-llama/llama-2-70b-chat">Llama 2 70B</option>
+                            <option value="">Loading models...</option>
                         </select>
+                        
+                        <!-- Model Info Display -->
+                        <div id="modelInfo" class="model-info"></div>
+                        
+                        <!-- Model Count -->
+                        <div id="modelCount" class="model-count"></div>
                     </div>
 
                     <div class="settings">
